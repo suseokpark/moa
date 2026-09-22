@@ -1,0 +1,817 @@
+<!doctype html>
+<html
+  lang="ko"
+  data-workspace-id="0123456789abcdef0123456789abcdef"
+  data-nfs-demo-active-page-id="0123456789abcdef0123456789abcdef"
+>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Moa · Live demo</title>
+    <link rel="stylesheet" href="../src/content.css?v=0.1.9-title-cache" />
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #37352f;
+        background: #ffffff;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        min-width: 240px;
+        min-height: 100vh;
+        margin: 0;
+        background: #ffffff;
+      }
+
+      button,
+      a {
+        color: inherit;
+        font: inherit;
+      }
+
+      .app-shell {
+        display: grid;
+        grid-template-columns: 330px minmax(0, 1fr);
+        min-height: 100vh;
+      }
+
+      .notion-sidebar {
+        position: sticky;
+        top: 0;
+        display: flex;
+        height: 100vh;
+        flex-direction: column;
+        overflow: hidden;
+        border-right: 1px solid rgba(55, 53, 47, 0.09);
+        background: #f7f7f5;
+        padding: 8px;
+      }
+
+      .workspace-switcher {
+        display: flex;
+        align-items: center;
+        min-height: 42px;
+        padding: 4px 8px;
+        gap: 10px;
+        border-radius: 7px;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .workspace-mark {
+        display: grid;
+        width: 25px;
+        height: 25px;
+        place-items: center;
+        border-radius: 6px;
+        background: #37352f;
+        color: white;
+        font-family: Georgia, serif;
+        font-size: 15px;
+      }
+
+      .sidebar-tools {
+        display: flex;
+        align-items: center;
+        flex: 0 0 auto;
+        gap: 2px;
+        margin: 8px 0 18px;
+      }
+
+      .primary-tab-wrapper,
+      .primary-tab-inner {
+        display: contents;
+      }
+
+      .sidebar-tool,
+      [data-fixture-native-row] a {
+        display: flex;
+        align-items: center;
+        min-height: 30px;
+        padding: 4px 8px;
+        gap: 8px;
+        border-radius: 5px;
+        color: rgba(55, 53, 47, 0.78);
+        font-size: 14px;
+        text-decoration: none;
+      }
+
+      .sidebar-tool {
+        flex: 1;
+        justify-content: center;
+        min-width: 0;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+        font-size: 12px;
+      }
+
+      .sidebar-tool:hover,
+      [data-fixture-native-row] a:hover {
+        background: rgba(55, 53, 47, 0.06);
+      }
+
+      .tool-icon {
+        width: 18px;
+        color: rgba(55, 53, 47, 0.52);
+        text-align: center;
+      }
+
+      .favorites-section {
+        display: block;
+        min-width: 0;
+      }
+
+      .sidebar-content-surface {
+        display: flex;
+        position: relative;
+        min-width: 0;
+        min-height: 0;
+        flex: 1 1 auto;
+        flex-direction: column;
+        overflow: hidden;
+      }
+
+      .native-sidebar-panel {
+        display: flex;
+        min-width: 0;
+        min-height: 0;
+        flex: 1 1 auto;
+        flex-direction: column;
+        overflow: auto;
+      }
+
+      .favorites-heading {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        min-height: 28px;
+        padding: 2px 8px;
+        border: 0;
+        background: transparent;
+        color: rgba(55, 53, 47, 0.5);
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-align: left;
+        text-transform: uppercase;
+      }
+
+      [data-fixture-native-row] span[role="img"] {
+        display: inline-grid;
+        width: 18px;
+        place-items: center;
+      }
+
+      .sidebar-footer {
+        margin-top: auto;
+        padding: 14px 8px 6px;
+        color: rgba(55, 53, 47, 0.45);
+        font-size: 11px;
+      }
+
+      .surface-probe {
+        position: absolute;
+        z-index: 10;
+        right: 8px;
+        bottom: 36px;
+        display: grid;
+        width: 128px;
+        min-height: 46px;
+        padding: 5px 8px;
+        place-items: center;
+        border: 3px solid #201b2c;
+        border-radius: 7px;
+        background: #ff238d;
+        color: #ffffff;
+        cursor: pointer;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.04em;
+        text-align: center;
+        text-transform: uppercase;
+      }
+
+      .notion-page {
+        min-width: 0;
+        padding: 26px 44px 80px;
+      }
+
+      .page-topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 36px;
+        margin-bottom: 52px;
+        color: rgba(55, 53, 47, 0.62);
+        font-size: 13px;
+      }
+
+      .demo-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 5px 9px;
+        gap: 6px;
+        border: 1px solid rgba(55, 53, 47, 0.11);
+        border-radius: 999px;
+        background: #ffffff;
+        color: rgba(55, 53, 47, 0.7);
+        font-size: 12px;
+      }
+
+      .demo-pill::before {
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: #2f9e6f;
+        content: "";
+      }
+
+      .page-content {
+        width: min(760px, 100%);
+        margin: 0 auto;
+      }
+
+      .page-icon {
+        margin-bottom: 14px;
+        font-size: 54px;
+        line-height: 1;
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        color: #26241f;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(40px, 5vw, 58px);
+        font-weight: 500;
+        letter-spacing: -0.04em;
+        line-height: 1.05;
+      }
+
+      .lede {
+        max-width: 650px;
+        margin: 0;
+        color: rgba(55, 53, 47, 0.67);
+        font-size: 17px;
+        line-height: 1.7;
+      }
+
+      .demo-card {
+        margin-top: 40px;
+        overflow: hidden;
+        border: 1px solid rgba(55, 53, 47, 0.1);
+        border-radius: 12px;
+        background: #ffffff;
+        box-shadow: 0 14px 34px rgba(24, 24, 20, 0.06);
+      }
+
+      .demo-card-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 17px 20px;
+        border-bottom: 1px solid rgba(55, 53, 47, 0.08);
+        background: #fbfaf8;
+      }
+
+      .demo-card-title {
+        font-size: 14px;
+        font-weight: 650;
+      }
+
+      .manual-badge {
+        padding: 4px 8px;
+        border-radius: 5px;
+        background: #eee9ff;
+        color: #6c4bc5;
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .demo-steps {
+        display: grid;
+        margin: 0;
+        padding: 8px 20px 14px;
+        list-style: none;
+      }
+
+      .demo-step {
+        display: grid;
+        grid-template-columns: 28px minmax(0, 1fr);
+        align-items: start;
+        padding: 14px 0;
+        gap: 12px;
+        border-bottom: 1px solid rgba(55, 53, 47, 0.07);
+      }
+
+      .demo-step:last-child {
+        border-bottom: 0;
+      }
+
+      .step-number {
+        display: grid;
+        width: 25px;
+        height: 25px;
+        place-items: center;
+        border-radius: 7px;
+        background: #f1f0ee;
+        color: rgba(55, 53, 47, 0.7);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .step-title {
+        display: block;
+        margin: 2px 0 3px;
+        font-size: 14px;
+        font-weight: 650;
+      }
+
+      .step-description {
+        color: rgba(55, 53, 47, 0.58);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      code {
+        padding: 2px 5px;
+        border-radius: 4px;
+        background: #f1f0ee;
+        color: #5d4ab8;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.92em;
+      }
+
+      .architecture-note {
+        display: flex;
+        flex-wrap: wrap;
+        margin-top: 22px;
+        gap: 8px;
+      }
+
+      .architecture-note span {
+        padding: 6px 9px;
+        border-radius: 6px;
+        background: #f7f7f5;
+        color: rgba(55, 53, 47, 0.6);
+        font-size: 12px;
+      }
+
+      @media (max-width: 960px) {
+        .app-shell {
+          grid-template-columns: 300px minmax(0, 1fr);
+        }
+
+        .notion-page {
+          padding-inline: 32px;
+        }
+      }
+      @media (max-width: 620px) {
+        .app-shell { display: block; }
+        .notion-sidebar { width: 100%; }
+        .notion-page { display: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <nav class="notion-sidebar" aria-label="Notion sidebar">
+        <div class="workspace-switcher">
+          <span class="workspace-mark" aria-hidden="true">N</span>
+          <span>Notion Demo</span>
+        </div>
+
+        <div
+          class="sidebar-tools"
+          data-fixture-primary-navigation
+          role="tablist"
+          aria-label="Sidebar navigation"
+        >
+          <div class="primary-tab-wrapper">
+            <div class="primary-tab-inner">
+              <div class="sidebar-tool" role="tab" aria-label="검색" aria-selected="false" tabindex="0">
+                <span class="tool-icon" aria-hidden="true">⌕</span>
+                검색
+              </div>
+            </div>
+          </div>
+          <div class="primary-tab-wrapper">
+            <div class="primary-tab-inner">
+              <div
+                class="sidebar-tool"
+                id="live-home-tab"
+                role="tab"
+                aria-label="홈"
+                aria-controls="live-home-panel"
+                aria-selected="true"
+                tabindex="0"
+              >
+                <span class="tool-icon" aria-hidden="true">⌂</span>
+                홈
+              </div>
+            </div>
+          </div>
+          <div class="primary-tab-wrapper">
+            <div class="primary-tab-inner">
+              <div class="sidebar-tool" role="tab" aria-label="수신함" aria-selected="false" tabindex="0">
+                <span class="tool-icon" aria-hidden="true">▣</span>
+                수신함
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div
+          class="sidebar-content-surface"
+          data-fixture-content-surface
+          style="display: flex; flex-direction: column; position: relative"
+        >
+          <div
+            class="native-sidebar-panel"
+            data-fixture-native-panel
+            id="live-home-panel"
+            role="tabpanel"
+            aria-labelledby="live-home-tab"
+          >
+            <section class="favorites-section" role="group" aria-label="Favorites">
+              <button class="favorites-heading" type="button" aria-label="Favorites">
+                Favorites
+              </button>
+              <div data-fixture-native-row>
+                <a href="https://app.notion.com/acme/Roadmap-0123456789abcdef0123456789abcdef">
+                  <span role="img" aria-label="페이지 아이콘 변경">🗺️</span>
+                  <span data-testid="page-title">Roadmap</span>
+                </a>
+              </div>
+              <div data-fixture-native-row>
+                <a href="https://app.notion.com/acme/Decisions-fedcba9876543210fedcba9876543210">
+                  <span role="img" aria-label="페이지 아이콘 변경">📘</span>
+                  <span data-testid="page-title">Decisions</span>
+                </a>
+              </div>
+              <div data-fixture-native-row>
+                <a href="https://app.notion.com/acme/Weekly-Planning-aabbccddeeff00112233445566778899">
+                  <span role="img" aria-label="페이지 아이콘 변경">📅</span>
+                  <span data-testid="page-title">Weekly Planning</span>
+                </a>
+              </div>
+            </section>
+
+            <section aria-label="개인 페이지" style="margin-top: 16px">
+              <h3 class="favorites-heading">개인 페이지</h3>
+              <div class="notion-outliner-private" role="tree" aria-label="개인 페이지 트리">
+                <div>
+                  <div class="notion-selectable notion-page-block" data-block-id="0123456789abcdef0123456789abcdef" data-fixture-native-row>
+                    <a role="treeitem" aria-expanded="true" href="https://app.notion.com/0123456789abcdef0123456789abcdef"><span role="img" aria-label="페이지 아이콘 변경">🗺️</span><span data-testid="page-title">Roadmap</span></a>
+                    <div class="notion-outliner-private" role="group" style="margin-left:12px">
+                      <div>
+                        <div class="notion-selectable notion-page-block" data-block-id="11111111111111111111111111111111" data-fixture-native-row>
+                          <a role="treeitem" aria-expanded="true" href="https://app.notion.com/11111111111111111111111111111111"><span role="img" aria-label="페이지 아이콘 변경">📝</span><span data-testid="page-title">Product Notes</span></a>
+                          <div class="notion-outliner-private" role="group" style="margin-left:12px"><div>
+                            <div class="notion-selectable notion-page-block" data-block-id="22222222222222222222222222222222" data-fixture-native-row>
+                              <a role="treeitem" href="https://app.notion.com/22222222222222222222222222222222"><span role="img" aria-label="페이지 아이콘 변경">🎯</span><span data-testid="page-title">Q4 Plan</span></a>
+                            </div>
+                          </div></div>
+                        </div>
+                        <div class="notion-selectable notion-page-block" data-block-id="33333333333333333333333333333333" data-fixture-native-row>
+                          <a role="treeitem" href="https://app.notion.com/33333333333333333333333333333333"><span role="img" aria-label="페이지 아이콘 변경">🔎</span><span data-testid="page-title">Research</span></a>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <button class="surface-probe" data-fixture-underlay-probe type="button">
+              Native surface probe
+            </button>
+            <div class="sidebar-footer">Moa · local fixture</div>
+          </div>
+        </div>
+      </nav>
+
+      <main class="notion-page" id="demo">
+        <div class="page-topbar">
+          <span>Product / Extension demo</span>
+          <span class="demo-pill" id="fixture-status">로컬 데모 준비됨</span>
+        </div>
+
+        <article class="page-content">
+          <div class="page-icon" aria-hidden="true">🗂️</div>
+          <h1>즐겨찾기를<br />내 방식대로</h1>
+          <p class="lede">
+            자주 여는 Notion 페이지를
+            <strong>그룹 → 섹션 → 즐겨찾기</strong>로 정리하고, 그룹과 섹션을
+            각각 접었다 펼칠 수 있습니다.
+          </p>
+
+          <section class="demo-card" aria-labelledby="demo-guide-title">
+            <header class="demo-card-header">
+              <span class="demo-card-title" id="demo-guide-title">시연 순서</span>
+              <span class="manual-badge">MANUAL DEMO</span>
+            </header>
+            <ol class="demo-steps">
+              <li class="demo-step">
+                <span class="step-number">1</span>
+                <span>
+                  <span class="step-title">Moa 열기</span>
+                  <span class="step-description">
+                    별도 로그인이나 프로필 선택 없이 수신함 옆 <code>Moa</code>를 눌러
+                    이 워크스페이스의 정리 화면을 엽니다.
+                  </span>
+                </span>
+              </li>
+              <li class="demo-step">
+                <span class="step-number">2</span>
+                <span>
+                  <span class="step-title">그룹과 섹션 만들기</span>
+                  <span class="step-description">
+                    <code>+ 그룹</code>으로 <code>업무</code>를 만들고, 그룹 오른쪽의
+                    <code>+</code>로 <code>프로젝트</code> 섹션을 추가합니다.
+                  </span>
+                </span>
+              </li>
+              <li class="demo-step">
+                <span class="step-number">3</span>
+                <span>
+                  <span class="step-title">즐겨찾기 검색하고 선택</span>
+                  <span class="step-description">
+                    <code>+ 즐겨찾기</code>를 누르고 검색한 뒤 <code>Roadmap</code>과
+                    <code>Decisions</code>를 체크합니다. 선택하지 않은 즐겨찾기는
+                    자동으로 들어오지 않습니다.
+                  </span>
+                </span>
+              </li>
+              <li class="demo-step">
+                <span class="step-number">4</span>
+                <span>
+                  <span class="step-title">목적지에 한 번에 추가</span>
+                  <span class="step-description">
+                    <code>그룹 / 섹션</code> 목적지에서 <code>업무 / 프로젝트</code>를
+                    선택하고 <code>선택한 2개 추가</code>를 한 번 누릅니다.
+                  </span>
+                </span>
+              </li>
+              <li class="demo-step">
+                <span class="step-number">5</span>
+                <span>
+                  <span class="step-title">그룹과 섹션 접기</span>
+                  <span class="step-description">
+                    <code>프로젝트</code> 섹션과 <code>업무</code> 그룹을 각각 접고
+                    펼칠 수 있습니다. 직접 접은 곳은 그대로 접혀 있습니다.
+                  </span>
+                </span>
+              </li>
+              <li class="demo-step">
+                <span class="step-number">6</span>
+                <span>
+                  <span class="step-title">현재 페이지와 관리 상태 확인</span>
+                  <span class="step-description">
+                    상단 <code>현재 열린 페이지</code>에서 Roadmap의 하위 페이지를 펼쳐 보세요.
+                    하위 링크를 누르면 이 데모 안에서 현재 페이지가 바뀌며, 즐겨찾기에 담은 상위 경로도 자동으로 펼쳐집니다.
+                    <code>목록 갱신</code>은 Moa가 이미 관리 중인 항목의 상태만
+                    갱신합니다. 목록에서 잠시 보이지 않는 항목도 정리한 위치를 유지합니다.
+                  </span>
+                </span>
+              </li>
+              <li class="demo-step">
+                <span class="step-number">7</span>
+                <span>
+                  <span class="step-title">실수한 작업 되돌리기</span>
+                  <span class="step-description">
+                    변경 후 <code>되돌리기</code>로 직전 정리 작업을 복구할 수 있습니다.
+                    맨 아래 초기화는 별도의 확인 후 실행되며, Notion 원본에는 영향을 주지 않습니다.
+                  </span>
+                </span>
+              </li>
+            </ol>
+          </section>
+
+          <div class="architecture-note" aria-label="데모 구현 정보">
+            <span>실제 tree model</span>
+            <span>실제 Notion adapter</span>
+            <span>실제 Shadow DOM view</span>
+            <span>내부 tabpanel surface overlay</span>
+            <span>CAS 저장소 fixture</span>
+            <span>워크스페이스별 자동 저장</span>
+            <span>복수 선택 후 목적지에 한 번에 추가</span>
+            <span>원본 Favorites 항상 유지</span>
+            <span>현재 페이지 자동 강조</span>
+            <span>Moa 전용 초기화</span>
+          </div>
+        </article>
+      </main>
+    </div>
+
+    <script>
+      const fixtureStorage = new Map();
+      const fixtureMetadata = new Map();
+      const fixtureRevisions = new Map();
+      let fixtureCatalog = {
+        schemaVersion: 1,
+        profiles: [],
+        bindings: [],
+        selections: []
+      };
+      let fixtureCatalogRevision = 0;
+
+      window.chrome = window.chrome || {};
+      window.chrome.runtime = {
+        async sendMessage(message) {
+          if (message.type === "NFS_PROFILE_CATALOG_GET") {
+            return {
+              ok: true,
+              catalog: structuredClone(fixtureCatalog),
+              revision: fixtureCatalogRevision
+            };
+          }
+
+          if (message.type === "NFS_PROFILE_CATALOG_SET") {
+            if (message.payload.expectedRevision !== fixtureCatalogRevision) {
+              return {
+                ok: false,
+                error: "fixture profile revision conflict",
+                conflict: true,
+                catalog: structuredClone(fixtureCatalog),
+                revision: fixtureCatalogRevision
+              };
+            }
+            fixtureCatalog = structuredClone(message.payload.catalog);
+            fixtureCatalogRevision += 1;
+            return {
+              ok: true,
+              catalog: structuredClone(fixtureCatalog),
+              revision: fixtureCatalogRevision
+            };
+          }
+
+          const key = message.payload.workspaceKey;
+          if (message.type === "NFS_METADATA_GET" || message.type === "NFS_METADATA_MERGE") {
+            const ids = new Set((fixtureStorage.get(key)?.groups || []).flatMap(group => group.sections.flatMap(section => section.favorites.map(favorite => favorite.pageId))));
+            const cached = new Map((fixtureMetadata.get(key) || []).filter(entry => ids.has(entry.pageId)).map(entry => [entry.pageId, entry]));
+            if (message.type === "NFS_METADATA_MERGE") {
+              for (const entry of message.payload.entries) if (ids.has(entry.pageId)) cached.set(entry.pageId, structuredClone(entry));
+            }
+            const metadata = [...cached.values()];
+            fixtureMetadata.set(key, metadata);
+            return { ok: true, metadata: structuredClone(metadata) };
+          }
+          const fixtureRevision = fixtureRevisions.get(key) || 0;
+          if (message.type === "NFS_STORAGE_GET") {
+            return fixtureStorage.has(key)
+              ? {
+                  ok: true,
+                  workspace: fixtureStorage.get(key),
+                  revision: fixtureRevision
+                }
+              : { ok: true, revision: fixtureRevision };
+          }
+
+          if (message.type === "NFS_STORAGE_SET") {
+            if (message.payload.expectedRevision !== fixtureRevision) {
+              return {
+                ok: false,
+                error: "fixture revision conflict",
+                conflict: true,
+                workspace: fixtureStorage.get(key),
+                revision: fixtureRevision
+              };
+            }
+
+            const clone = structuredClone(message.payload.workspace);
+            const nextRevision = fixtureRevision + 1;
+            fixtureRevisions.set(key, nextRevision);
+            fixtureStorage.set(key, clone);
+            const remaining = new Set(clone.groups.flatMap(group => group.sections.flatMap(section => section.favorites.map(favorite => favorite.pageId))));
+            fixtureMetadata.set(key, (fixtureMetadata.get(key) || []).filter(entry => remaining.has(entry.pageId)));
+            return { ok: true, workspace: clone, revision: nextRevision };
+          }
+
+          return { ok: false, error: "Unsupported fixture message" };
+        }
+      };
+
+      // The demo exercises the real inline editors; browser dialogs must never be used.
+      window.prompt = () => { throw new Error("Use the Moa inline name form."); };
+      window.confirm = () => { throw new Error("Use the Moa inline confirmation form."); };
+      const demoOptions = new URLSearchParams(location.search);
+      // This local demo alone simulates navigation. Production anchors use
+      // native browser navigation and never intercept Notion page clicks.
+      document.addEventListener("click", (event) => {
+        if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        const link = event.composedPath().find(node => node?.tagName === "A" && node.href);
+        const adapter = window.NotionFavoriteSections?.adapter;
+        if (!link || !adapter?.isAllowedNotionUrl(link.href)) return;
+        const pageId = adapter.extractPageId(link.href);
+        if (!pageId) return;
+        event.preventDefault();
+        document.documentElement.setAttribute("data-nfs-demo-active-page-id", pageId);
+        document.querySelector("#fixture-status").textContent = `열린 페이지: ${link.textContent.trim()}`;
+        window.NotionFavoriteSections.content?.refresh();
+      }, true);
+      if (demoOptions.get("nav") === "full") {
+        const navigation = document.querySelector("[data-fixture-primary-navigation]");
+        const firstWrapper = navigation.firstElementChild;
+        firstWrapper.remove();
+        for (const name of ["채팅", "회의"]) {
+          const wrapper = firstWrapper.cloneNode(true);
+          const tab = wrapper.querySelector('[role="tab"]');
+          tab.setAttribute("aria-label", name);
+          tab.textContent = name;
+          navigation.insertBefore(wrapper, navigation.lastElementChild);
+        }
+      }
+      const demoWidth = Number(demoOptions.get("width"));
+      if ([220, 240, 280, 330].includes(demoWidth)) {
+        document.querySelector(".app-shell").style.gridTemplateColumns = `${demoWidth}px minmax(0, 1fr)`;
+      }
+      if (demoOptions.get("zoom") === "2") {
+        document.querySelector(".notion-sidebar").style.zoom = "2";
+        document.querySelector(".app-shell").style.gridTemplateColumns = `${(demoWidth || 330) * 2}px minmax(0, 1fr)`;
+      }
+      if (demoOptions.get("theme") === "dark") {
+        document.documentElement.style.colorScheme = "dark";
+        document.querySelector(".notion-sidebar").style.background = "#202020";
+        document.querySelector(".notion-sidebar").style.color = "#f2f2f2";
+        for (const item of document.querySelectorAll(".sidebar-tool, .tool-icon, .favorites-heading, [data-fixture-native-row] a")) item.style.color = "inherit";
+      }
+      if (demoOptions.get("count") === "40") {
+        const section = document.querySelector(".favorites-section");
+        for (let i = 4; i <= 40; i += 1) {
+          const row = document.createElement("div");
+          row.setAttribute("data-fixture-native-row", "");
+          const link = document.createElement("a");
+          link.href = `https://app.notion.com/${i.toString(16).padStart(32, "0")}`;
+          const title = document.createElement("span");
+          title.dataset.testid = "page-title";
+          title.textContent = `프로젝트 ${i} — 제품 기획과 고객 인터뷰 결과를 함께 정리하는 긴 페이지 제목`;
+          link.append(title); row.append(link); section.append(row);
+        }
+      }
+      let fixtureUnderlayClickCount = 0;
+      document
+        .querySelector("[data-fixture-underlay-probe]")
+        .addEventListener("click", () => {
+          fixtureUnderlayClickCount += 1;
+          document.querySelector("#fixture-status").textContent =
+            `원본 surface 클릭 ${fixtureUnderlayClickCount}회`;
+        });
+
+      window.__nfsLiveDemo = Object.freeze({
+        get revision() {
+          return [...fixtureRevisions.values()].reduce(
+            (total, revision) => total + revision,
+            fixtureCatalogRevision
+          );
+        },
+        get workspace() {
+          const firstWorkspace = fixtureStorage.values().next().value;
+          return firstWorkspace ? structuredClone(firstWorkspace) : null;
+        },
+        get catalog() {
+          return structuredClone(fixtureCatalog);
+        },
+        get probeClicks() {
+          return fixtureUnderlayClickCount;
+        },
+        get surface() {
+          const contentSurface = document.querySelector(
+            "[data-fixture-content-surface]"
+          );
+          const viewHost = [...(contentSurface?.children || [])].find((child) =>
+            child.hasAttribute("data-notion-tree-primary-navigation-view-host")
+          );
+          if (!contentSurface || !viewHost) return null;
+          const surfaceRect = contentSurface.getBoundingClientRect();
+          const viewRect = viewHost.getBoundingClientRect();
+          return {
+            directLastChild: contentSurface.lastElementChild === viewHost,
+            open: !viewHost.hidden,
+            opaque:
+              getComputedStyle(viewHost).opacity === "1" &&
+              getComputedStyle(viewHost).backgroundColor !== "transparent",
+            covers:
+              viewRect.left <= surfaceRect.left + 1 &&
+              viewRect.top <= surfaceRect.top + 1 &&
+              viewRect.right >= surfaceRect.right - 1 &&
+              viewRect.bottom >= surfaceRect.bottom - 1
+          };
+        }
+      });
+    </script>
+    <script src="../src/favorite-tree-model.js?v=0.1.9-title-cache"></script>
+    <script src="../src/profile-catalog.js?v=0.1.9-title-cache"></script>
+    <script src="../src/notion-sidebar-adapter.js?v=0.1.9-title-cache"></script>
+    <script src="../src/favorite-tree-view.js?v=0.1.9-title-cache"></script>
+    <script src="../src/moa-brand.js?v=0.1.9-title-cache"></script>
+    <script src="../src/notion-tree-panel.js?v=0.1.9-title-cache"></script>
+    <script src="../src/content.js?v=0.1.9-title-cache"></script>
+  </body>
+</html>

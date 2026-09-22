@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<title>Moa everyday usability regression</title>
+<style>
+body { margin: 20px; font: 14px system-ui; background: #f7f7f5; color: #37352f; }
+#host { width: 340px; min-height: 650px; background: white; border: 1px solid #ddd; }
+#results { position: absolute; left: 390px; top: 20px; max-width: 760px; white-space: pre-wrap; }
+</style>
+<div id="host"></div><pre id="results">RUNNING</pre>
+<script src="../src/favorite-tree-model.js?v=0.1.9-title-cache"></script>
+<script src="../src/favorite-tree-view.js?v=0.1.9-title-cache"></script>
+<script>
+(async () => {
+  const model = NotionFavoriteSections.model;
+  const host = document.querySelector('#host');
+  const results = document.querySelector('#results');
+  const report = [];
+  const ids = ['1', '2', '3'].map(id => id.repeat(32));
+  const favorites = ids.map((pageId, index) => ({ pageId, title: ['Roadmap', 'Product Notes', 'Personal Journal'][index], href: `https://app.notion.com/${pageId}`, iconText: ['🗺️', '📝', '📔'][index] }));
+  let workspace, view, revision, destructiveCalls, undoCalls, createFailure;
+  const settle = () => new Promise(resolve => setTimeout(resolve, 10));
+  const check = (condition, message) => { if (!condition) throw new Error(message); };
+  const find = selector => host.shadowRoot.querySelector(selector);
+  const all = selector => [...host.shadowRoot.querySelectorAll(selector)];
+  const textButton = (text, within = host.shadowRoot) => [...within.querySelectorAll('button')].find(button => button.textContent.trim() === text);
+  const escape = node => { node.focus(); node.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true, composed: true, cancelable: true})); };
+  const click = async node => { check(node, 'Missing control'); node.focus(); node.click(); await settle(); };
+  const update = () => view.update({ workspace, workspaceRevision: revision });
+  const commit = next => { workspace = next; revision += 1; update(); return workspace; };
+  function setup({ empty = false, collapsed = false, dormant = false } = {}) {
+    view?.destroy(); revision = 7; destructiveCalls = []; undoCalls = 0; createFailure = false;
+    workspace = model.createWorkspace();
+    if (!empty) {
+      workspace = model.createGroup(workspace, { id: 'work', name: '업무', collapsed });
+      workspace = model.createSection(workspace, 'work', { id: 'projects', name: '프로젝트', collapsed });
+      workspace = model.addFavorite(workspace, ids[0], { sectionId: 'projects' });
+      workspace = model.addFavorite(workspace, ids[1], { sectionId: 'projects' });
+      if (dormant) workspace.groups[0].sections[0].favorites[1].dormant = true;
+    }
+    view = NotionFavoriteSections.view.createFavoriteTreeView({
+      host, workspace, favorites: dormant ? [favorites[0], favorites[2]] : favorites, activePageId: ids[0], workspaceKey: 'workspace:demo', workspaceRevision: revision,
+      importPreview: { canManage: true, canReset: true },
+      callbacks: {
+        onToggleGroup: id => commit(model.toggleGroup(workspace, id)),
+        onToggleSection: id => commit(model.toggleSection(workspace, id)),
+        onCreateGroup: name => { if (createFailure) throw new Error('저장 연결을 확인해 주세요.'); return commit(model.createGroup(workspace, { name, id: 'new-group' })); },
+        onCreateSection: (groupId, name) => commit(model.createSection(workspace, groupId, { name, id: 'new-section' })),
+        onRenameGroup: (id, name) => commit(model.renameGroup(workspace, id, name)),
+        onRenameSection: (id, name) => commit(model.renameSection(workspace, id, name)),
+        onMoveFavorite: (id, sectionId, position) => commit(model.moveFavorite(workspace, id, sectionId, position)),
+        onRemoveFavorite: (id, scope) => { destructiveCalls.push({id, ...scope}); return commit(model.removeFavorite(workspace, id)); },
+        onDeleteGroup: (id, scope) => { destructiveCalls.push({id, ...scope}); return commit(model.deleteGroup(workspace, id)); },
+        onDeleteSection: (id, scope) => { destructiveCalls.push({id, ...scope}); return commit(model.deleteSection(workspace, id)); },
+        onResetTree: scope => { destructiveCalls.push(scope); return commit(model.createWorkspace()); },
+        onAddFavorites: (pageIds, sectionId) => {
+          for (const id of pageIds) workspace = model.addFavorite(workspace, id, { sectionId });
+          commit(workspace); return { workspace, addedCount: 1, skippedCount: Math.max(0, pageIds.length - 1) };
+        },
+        onRefreshManagedFavorites: () => workspace,
+        onUndo: () => { undoCalls += 1; view.update({ undoState: { canUndo: false } }); }
+      }
+    });
+  }
+  async function test(name, fn) { await fn(); report.push(`PASS ${name}`); results.textContent = report.join('\n'); }
+  try {
+    await test('Empty onboarding provides direct add and a valid default destination', async () => {
+      setup({ empty: true });
+      await click(textButton('즐겨찾기 추가하기'));
+      check(find('.nfs-picker-destination').value, 'Default destination is not selected');
+      check(host.shadowRoot.activeElement === find('.nfs-picker-search'), 'Search not focused');
+    });
+    await test('Active group and section each collapse on their first click', async () => {
+      setup();
+      await click(find('[data-section-id="projects"] .nfs-toggle'));
+      check(find('[data-section-id="projects"] .nfs-favorite-list').hidden, 'Active section remained expanded');
+      await click(find('[data-group-id="work"] > .nfs-row .nfs-toggle'));
+      check(find('[data-group-id="work"] > .nfs-section-list').hidden, 'Active group remained expanded');
+      check(host.shadowRoot.activeElement?.classList.contains('nfs-toggle'), 'Disclosure lost focus');
+    });
+    await test('Auto-expanded saved collapse can be closed immediately without rewriting stored state', async () => {
+      setup({ collapsed: true });
+      await click(find('[data-group-id="work"] > .nfs-row .nfs-toggle'));
+      check(find('[data-group-id="work"] > .nfs-section-list').hidden, 'Auto-expanded group stayed open');
+      check(workspace.groups[0].collapsed === true, 'Stored collapse overwritten');
+      await click(find('[data-group-id="work"] > .nfs-row .nfs-toggle'));
+      await click(find('[data-section-id="projects"] .nfs-toggle'));
+      check(find('[data-section-id="projects"] .nfs-favorite-list').hidden, 'Auto-expanded section stayed open');
+    });
+    await test('One disclosure per group/section and no unsupported ARIA menu semantics', async () => {
+      setup();
+      check(all('[data-group-id="work"] > .nfs-row button[aria-expanded]').length === 1, 'Duplicate group disclosure');
+      check(all('[data-section-id="projects"] > .nfs-row button[aria-expanded]').length === 1, 'Duplicate section disclosure');
+      check(!find('[role="menu"]'), 'Incomplete menu role is still present');
+    });
+    for (const selector of ['input[type="checkbox"]', '.nfs-picker-destination', '[data-picker-submit]']) {
+      await test(`Picker Escape closes from ${selector} and restores add-button focus`, async () => {
+        setup(); await click(find('.nfs-add-favorite-button'));
+        const checkbox = find('[data-picker-page-id="' + ids[2] + '"]');
+        checkbox.click();
+        escape(find(selector));
+        check(!find('.nfs-favorite-picker'), 'Picker remained open');
+        check(host.shadowRoot.activeElement === find('.nfs-add-favorite-button'), 'Add focus not restored');
+      });
+    }
+    await test('Search Escape clears once, then closes; rerender preserves query/caret', async () => {
+      setup(); await click(find('.nfs-add-favorite-button'));
+      let search = find('.nfs-picker-search'); search.value = 'Journal'; search.dispatchEvent(new Event('input', {bubbles: true})); search.focus(); search.setSelectionRange(2, 4);
+      view.update({ status: { message: '다른 탭의 변경을 반영했습니다.' } });
+      search = find('.nfs-picker-search');
+      check(search.value === 'Journal' && search.selectionStart === 2 && search.selectionEnd === 4 && host.shadowRoot.activeElement === search, 'Search state lost');
+      escape(search); check(find('.nfs-favorite-picker') && !find('.nfs-picker-search').value, 'First Escape should clear');
+      escape(find('.nfs-picker-search')); check(!find('.nfs-favorite-picker'), 'Second Escape should close');
+    });
+    await test('Inline create validates empty name, retains failed value, then succeeds', async () => {
+      setup(); await click(find('[aria-label="그룹 추가"]'));
+      find('form').requestSubmit(); await settle();
+      check(find('.nfs-inline-error'), 'Empty name not explained');
+      let input = find('.nfs-inline-input'); input.value = '개인'; input.dispatchEvent(new Event('input', {bubbles: true}));
+      createFailure = true; find('form').requestSubmit(); await settle();
+      check(find('.nfs-inline-input').value === '개인' && find('.nfs-inline-error'), 'Failed draft lost');
+      createFailure = false; find('form').requestSubmit(); await settle();
+      check(!find('form') && workspace.groups.some(group => group.name === '개인'), 'Create did not complete');
+      check(host.shadowRoot.activeElement === find('[aria-label="그룹 추가"]'), 'Create focus not restored');
+    });
+    await test('Inline cancel consumes Escape and restores the initiating menu summary', async () => {
+      setup(); const summary = find('[data-group-id="work"] > .nfs-row summary'); await click(summary);
+      await click(textButton('그룹 이름 변경', summary.parentElement));
+      escape(find('.nfs-inline-input'));
+      check(!find('form'), 'Inline form remained open');
+      check(host.shadowRoot.activeElement === find('[data-group-id="work"] > .nfs-row summary'), 'Menu trigger focus not restored');
+    });
+    await test('Confirmation cancels safely and submits the revision/key from before the dialog', async () => {
+      setup(); await click(find('.nfs-reset-button')); escape(find('[data-form-cancel]'));
+      check(destructiveCalls.length === 0, 'Cancel mutated data');
+      await click(find('.nfs-reset-button')); revision = 8; update();
+      find('form').requestSubmit(); await settle();
+      check(destructiveCalls[0]?.expectedRevision === 7 && destructiveCalls[0]?.workspaceKey === 'workspace:demo', 'Confirmation scope drifted');
+    });
+    await test('Workspace switch dismisses stale edit/confirmation', async () => {
+      setup(); await click(find('.nfs-reset-button')); view.update({ workspaceKey: 'workspace:other', workspaceRevision: 7 });
+      check(!find('form') && destructiveCalls.length === 0, 'Stale workspace dialog remained actionable');
+    });
+    await test('Saved dormant pages remain visible with remove/move controls', async () => {
+      setup({ dormant: true }); const item = find('[data-page-id="' + ids[1] + '"]');
+      check(item && item.textContent.includes('제목을 불러오지 못한 페이지'), 'Dormant page disappeared');
+      check(item.querySelector('a.nfs-favorite-link')?.href === `https://app.notion.com/${ids[1]}`, 'Saved valid page ID should remain navigable without a live title');
+      check(item.querySelector('summary') && textButton('Moa에서 제거', item), 'Dormant page is unmanageable');
+    });
+    await test('Favorite menu up/down changes order without dragging', async () => {
+      setup(); let item = find('[data-page-id="' + ids[1] + '"]'); await click(item.querySelector('summary'));
+      await click(textButton('위로 이동', item));
+      check(workspace.groups[0].sections[0].favorites[0].pageId === ids[1], 'Move up failed');
+      check(host.shadowRoot.activeElement === find('[data-page-id="' + ids[1] + '"] summary'), 'Move up lost focus to a hidden menu action');
+      item = find('[data-page-id="' + ids[1] + '"]'); await click(item.querySelector('summary'));
+      await click(textButton('아래로 이동', item));
+      check(workspace.groups[0].sections[0].favorites[1].pageId === ids[1], 'Move down failed');
+    });
+    await test('Rename restores focus to the same row with its new name', async () => {
+      setup(); const summary = find('[data-group-id="work"] > .nfs-row summary'); await click(summary);
+      await click(textButton('그룹 이름 변경', summary.parentElement));
+      const input = find('.nfs-inline-input'); input.value = '직장'; input.dispatchEvent(new Event('input', {bubbles: true}));
+      find('form').requestSubmit(); await settle();
+      check(workspace.groups[0].name === '직장', 'Rename failed');
+      check(host.shadowRoot.activeElement === find('[data-group-id="work"] > .nfs-row summary'), 'Renamed row focus lost');
+    });
+    await test('Pending save prevents competing dialogs and collapse changes', async () => {
+      setup(); let finish;
+      view.update({ callbacks: { onCreateGroup: () => new Promise(resolve => { finish = resolve; }) } });
+      await click(find('[aria-label="그룹 추가"]'));
+      const input = find('.nfs-inline-input'); input.value = '저장 중'; input.dispatchEvent(new Event('input', {bubbles: true}));
+      find('form').requestSubmit(); await settle();
+      await click(find('.nfs-reset-button'));
+      await click(find('[data-group-id="work"] > .nfs-row .nfs-toggle'));
+      check(find('form h3').textContent === '새 그룹 이름', 'Pending form was replaced');
+      check(!find('[data-group-id="work"] > .nfs-section-list').hidden, 'Pending save changed active collapse override');
+      finish(workspace); await settle();
+      check(!find('form'), 'Save did not finish');
+    });
+    await test('Menu Escape restores summary and Undo is actionable', async () => {
+      setup(); const summary = find('[data-group-id="work"] > .nfs-row summary'); await click(summary);
+      escape(textButton('그룹 이름 변경', summary.parentElement));
+      check(!summary.parentElement.open && host.shadowRoot.activeElement === summary, 'Menu did not dismiss safely');
+      view.update({ undoState: { canUndo: true, label: '즐겨찾기 이동' } }); await click(textButton('되돌리기'));
+      check(undoCalls === 1 && !find('.nfs-undo'), 'Undo did not complete');
+    });
+    await test('Bulk add displays server-confirmed counts and remembered selection state', async () => {
+      setup({ empty: true }); await click(find('.nfs-add-favorite-button'));
+      find('[data-picker-page-id="' + ids[0] + '"]').click(); find('[data-picker-page-id="' + ids[1] + '"]').click();
+      view.update({ status: { message: '목록을 확인했습니다.' } });
+      check(all('input[type="checkbox"]:checked').length === 2, 'Selection lost on rerender');
+      await click(find('[data-picker-submit]'));
+      check(host.shadowRoot.textContent.includes('1개를') && host.shadowRoot.textContent.includes('이미 추가된 1개'), 'Bulk result exaggerates added count');
+    });
+    await test('Last-row menu stays inside a narrow scroll viewport and all actions remain reachable', async () => {
+      const scroller = document.createElement('div');
+      // Deliberately smaller than the menu even with compact system fonts.
+      scroller.style.cssText = 'width:240px;height:120px;overflow:auto;position:relative';
+      document.body.insertBefore(scroller, host); scroller.append(host); host.style.width = '240px';
+      setup();
+      const manyFavorites = Array.from({length:40}, (_, index) => ({ pageId: (100 + index).toString(16).padStart(32, '0'), title: `프로젝트 ${index + 1}`, href: `https://app.notion.com/${(100 + index).toString(16).padStart(32, '0')}` }));
+      for (const favorite of manyFavorites) workspace = model.addFavorite(workspace, favorite.pageId, {sectionId:'projects'});
+      view.update({workspace, favorites:[...favorites, ...manyFavorites], activePageId:null}); await settle();
+      const summary = find('[data-page-id="' + manyFavorites.at(-1).pageId + '"] summary');
+      summary.scrollIntoView({block:'end'}); await click(summary);
+      const panel = summary.parentElement.querySelector('.nfs-menu-panel');
+      const viewportRect = scroller.getBoundingClientRect(); const menuRect = panel.getBoundingClientRect();
+      check(menuRect.top >= viewportRect.top - 1 && menuRect.bottom <= viewportRect.bottom + 1, 'Menu vertically clipped');
+      check(menuRect.left >= viewportRect.left - 1 && menuRect.right <= viewportRect.right + 1, 'Menu horizontally clipped');
+      check(panel.scrollHeight > panel.clientHeight, 'Short viewport should provide internal menu scrolling');
+      const remove = textButton('Moa에서 제거', panel); remove.focus(); await settle();
+      check(remove.getBoundingClientRect().bottom <= panel.getBoundingClientRect().bottom + 1, 'Last action cannot be reached');
+      escape(remove); check(!summary.parentElement.open && host.shadowRoot.activeElement === summary, 'Bounded menu broke Escape/focus');
+      view.destroy(); scroller.before(host); scroller.remove(); host.style.width = ''; setup();
+    });
+    results.textContent = `PASS: ${report.length} everyday usability regressions\n` + report.join('\n');
+    document.title = `PASS ${report.length}: Moa usability`;
+    window.usabilityResult = { ok: true, count: report.length, report };
+  } catch (error) {
+    results.textContent = report.join('\n') + '\nFAIL: ' + error.stack;
+    document.title = 'FAIL: Moa usability';
+    window.usabilityResult = { ok: false, report, error: error.message };
+    console.error(error);
+  }
+  window.viewFixture = { get view() { return view; }, setup, ids, favorites };
+})();
+</script>
+</html>

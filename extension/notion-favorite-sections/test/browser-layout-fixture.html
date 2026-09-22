@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<title>Moa layout regression</title>
+<style>body{font:14px system-ui;margin:20px}iframe{width:100%;height:850px;border:1px solid #ccc}pre{white-space:pre-wrap}</style>
+<h1>좁은 화면 · 긴 제목 · 40개 항목</h1>
+<pre id="result">pending</pre><iframe title="Moa stress scenario"></iframe>
+<script>
+const frame = document.querySelector('iframe');
+const result = document.querySelector('#result');
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const checks = [];
+function check(name, pass) { checks.push({name, pass: Boolean(pass)}); if (!pass) throw new Error(name); }
+async function until(fn) { for (let i=0;i<150;i++) { const value=fn(); if(value) return value; await wait(40); } throw new Error('Timed out waiting for UI'); }
+async function nameForm(root, name) {
+ const input = root.querySelector('.nfs-inline-input'); input.value=name; input.dispatchEvent(new Event('input',{bubbles:true}));
+ root.querySelector('[data-form-submit]').click(); await until(()=>!root.querySelector('.nfs-inline-form'));
+}
+(async()=>{
+ try {
+  for (const scenario of [{width:220},{width:240},{width:280,zoom:2},{width:240,theme:'dark'}]) {
+   const label=JSON.stringify(scenario);
+   frame.src='browser-live-demo.html?count=40&nav=full&'+new URLSearchParams(scenario);
+   await new Promise(resolve=>frame.onload=resolve);
+   const doc=frame.contentDocument;
+   const menu=await until(()=>doc.querySelector('[data-notion-tree-primary-navigation-host]')?.shadowRoot?.querySelector('button'));
+   menu.click();
+   const root=await until(()=>doc.querySelector('[data-notion-tree-primary-navigation-view-host]')?.shadowRoot?.querySelector('[data-notion-tree-panel-content-host]')?.shadowRoot);
+   await until(()=>root.querySelector('[aria-label="그룹 추가"]'));
+   const nav=doc.querySelector('[role="tablist"]');
+   check(label+' navigation fits',nav.scrollWidth<=nav.clientWidth+1);
+   // Native labels are owned by the fixture/Notion; check only our compact control.
+   check(label+' compact Moa retains accessible name',menu.hasAttribute('data-compact')&&menu.getAttribute('aria-label')==='Moa');
+   root.querySelector('[aria-label="그룹 추가"]').click();
+   await nameForm(root,'고객 인터뷰와 제품 기획을 함께 관리하는 업무 그룹');
+   root.querySelector('[aria-label$="에 섹션 추가"]').click();
+   await nameForm(root,'다음 분기 실행 계획과 참고 자료를 모아둔 섹션');
+   root.querySelector('[aria-label="Notion 즐겨찾기 추가"]').click();
+   const picker=root.querySelector('.nfs-favorite-picker');
+   check(label+' picker fits',picker.scrollWidth<=picker.clientWidth+1);
+   const boxes=[...picker.querySelectorAll('input[type="checkbox"]')];
+   check(label+' forty selectable pages',boxes.length===40);
+   for(const box of boxes) if(!box.checked) box.click();
+   root.querySelector('[data-picker-submit]').click();
+   await until(()=>!root.querySelector('.nfs-favorite-picker'));
+   await until(()=>!root.querySelector('[aria-label="Notion 즐겨찾기 추가"]').disabled);
+   // Finish the controller's 180ms source-observer reconciliation before keeping a row reference.
+   await wait(250);
+   check(label+' all forty saved',root.querySelectorAll('.nfs-favorite').length===40);
+   const tree=root.querySelector('.nfs-root');
+   check(label+' tree fits',tree.scrollWidth<=tree.clientWidth+1);
+   check(label+' one page icon',root.querySelector('.nfs-favorite').querySelectorAll('.nfs-favorite-icon').length<=1);
+   const viewHost=doc.querySelector('[data-notion-tree-primary-navigation-view-host]');
+   const panelRoot=viewHost.shadowRoot;
+   if(scenario.theme==='dark') check(label+' follows dark appearance',doc.defaultView.getComputedStyle(viewHost).colorScheme.includes('dark'));
+   const scroll=panelRoot.querySelector('.ntree-panel-scroll');
+   check(label+' long list scrolls',!scroll || scroll.scrollHeight>scroll.clientHeight);
+   const lastMenu=[...root.querySelectorAll('.nfs-favorite summary')].at(-1);
+   lastMenu.scrollIntoView({block:'end'});lastMenu.focus();
+   await wait(40);
+   [...root.querySelectorAll('.nfs-favorite summary')].at(-1).click();await wait(100);
+   const openMenu=root.querySelector('details[open] .nfs-menu-panel');
+   check(label+' last menu opens',Boolean(openMenu));
+   const menuRect=openMenu.getBoundingClientRect();
+   const scrollRect=scroll.getBoundingClientRect();
+   check(label+' last row menu remains visible '+JSON.stringify({menuTop:menuRect.top,menuBottom:menuRect.bottom,scrollTop:scrollRect.top,scrollBottom:scrollRect.bottom}),menuRect.top>=scrollRect.top-1&&menuRect.bottom<=scrollRect.bottom+1);
+  }
+  document.body.dataset.smoke='pass'; document.title='PASS: Moa layout';
+  result.textContent='PASS: '+checks.length+' layout checks\n'+checks.map(c=>'PASS '+c.name).join('\n');
+ } catch(error) {
+  document.body.dataset.smoke='fail'; document.title='FAIL: Moa layout'; result.textContent='FAIL: '+error.message+'\n'+error.stack;
+ }
+})();
+</script>
+</html>

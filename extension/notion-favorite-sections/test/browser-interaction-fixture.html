@@ -1,0 +1,880 @@
+<!doctype html>
+<html lang="ko" data-workspace-id="0123456789abcdef0123456789abcdef">
+  <head>
+    <meta charset="utf-8" />
+    <title>Moa interaction fixture</title>
+    <link rel="stylesheet" href="../src/content.css?v=0.1.9-title-cache" />
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; min-height: 100%; }
+      body { min-width: 720px; background: rgb(255, 255, 255); }
+      nav[aria-label="Notion sidebar"] {
+        display: flex;
+        width: 320px;
+        height: 560px;
+        flex-direction: column;
+        overflow: hidden;
+        background: rgb(247, 247, 245);
+      }
+      [data-fixture-primary-navigation] {
+        min-height: 40px;
+        flex: 0 0 40px;
+        align-items: center;
+      }
+      [data-fixture-primary-navigation] [role="tab"] {
+        min-height: 32px;
+        padding: 7px 12px;
+      }
+      [data-fixture-content-surface] {
+        width: 100%;
+        min-height: 0;
+        flex: 1 1 auto;
+        overflow: hidden;
+      }
+      [data-fixture-native-panel] {
+        display: flex;
+        min-height: 100%;
+        flex-direction: column;
+        background: rgb(247, 247, 245);
+      }
+      [aria-label="Favorites"] { padding: 8px; }
+      [data-fixture-native-row] { padding: 6px; }
+      [data-fixture-underlay-probe] {
+        position: absolute;
+        z-index: 10;
+        right: 12px;
+        bottom: 12px;
+        width: 112px;
+        height: 44px;
+        border: 3px solid rgb(0, 0, 0);
+        background: rgb(255, 0, 128);
+        color: rgb(255, 255, 255);
+        font-weight: 800;
+      }
+    </style>
+  </head>
+  <body>
+    <nav aria-label="Notion sidebar">
+      <div
+        data-fixture-primary-navigation
+        role="tablist"
+        aria-label="Sidebar navigation"
+        style="display: flex"
+      >
+        <div data-fixture-home-wrapper style="display: contents">
+          <div
+            id="fixture-home-tab"
+            role="tab"
+            aria-label="Home"
+            aria-controls="fixture-home-panel"
+            aria-selected="true"
+            tabindex="0"
+          >Home</div>
+        </div>
+        <div data-fixture-inbox-wrapper style="display: contents">
+          <div data-fixture-inbox-inner style="display: contents">
+            <div role="tab" aria-label="Inbox" aria-selected="false" tabindex="0">Inbox</div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        data-fixture-content-surface
+        style="display: flex; flex-direction: column; position: relative"
+      >
+        <div
+          data-fixture-native-panel
+          id="fixture-home-panel"
+          role="tabpanel"
+          aria-labelledby="fixture-home-tab"
+        >
+          <section role="group" aria-label="Favorites">
+            <button type="button" aria-label="Favorites">Favorites</button>
+            <div data-fixture-native-row>
+              <a href="https://app.notion.com/acme/Roadmap-0123456789abcdef0123456789abcdef">
+                <span role="img" aria-label="🗺️">🗺️</span>
+                <span data-testid="page-title">Roadmap</span>
+              </a>
+            </div>
+            <div data-fixture-native-row>
+              <a href="https://app.notion.com/acme/Decisions-fedcba9876543210fedcba9876543210">
+                <span role="img" aria-label="📘">📘</span>
+                <span data-testid="page-title">Decisions</span>
+              </a>
+            </div>
+            <div data-fixture-native-row>
+              <a href="https://app.notion.com/acme/Archive-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">
+                <span role="img" aria-label="🗄️">🗄️</span>
+                <span data-testid="page-title">Archive</span>
+              </a>
+            </div>
+          </section>
+          <button data-fixture-underlay-probe type="button">UNDERLAY</button>
+        </div>
+      </div>
+    </nav>
+
+    <output id="smoke-result">pending</output>
+
+    <script>
+      let fixtureUnderlayClickCount = 0;
+      const fixtureUnderlayProbe = document.querySelector(
+        "[data-fixture-underlay-probe]"
+      );
+      const fixtureNativePanel = document.querySelector(
+        "[data-fixture-native-panel]"
+      );
+      const fixtureNativePanelMarkup = fixtureNativePanel.innerHTML;
+      const fixtureNativeRows = [
+        ...document.querySelectorAll("[data-fixture-native-row]")
+      ].map((row) => ({
+        row,
+        parent: row.parentElement,
+        nextSibling: row.nextElementSibling,
+        markup: row.outerHTML
+      }));
+      fixtureNativePanel.addEventListener("click", (event) => {
+        event.preventDefault();
+        fixtureUnderlayClickCount += 1;
+      });
+
+      const fixtureStorage = new Map();
+      const fixtureMetadata = new Map();
+      const fixtureRevisions = new Map();
+      const fixtureMessages = [];
+      const fixtureBaseWorkspaceKey =
+        "workspace:id:0123456789abcdef0123456789abcdef";
+      const fixtureLegacyProfileId =
+        "11111111-1111-4111-8111-111111111111";
+      const fixtureLegacyWorkspaceKey =
+        `profile:${fixtureLegacyProfileId}:workspace:${fixtureBaseWorkspaceKey}`;
+      const fixtureUsesLegacyProfile =
+        new URLSearchParams(window.location.search).has("legacy");
+      let fixtureCatalog = fixtureUsesLegacyProfile
+        ? {
+            schemaVersion: 1,
+            profiles: [{ id: fixtureLegacyProfileId, label: "이전 프로필" }],
+            bindings: [
+              {
+                profileId: fixtureLegacyProfileId,
+                workspaceKey: fixtureBaseWorkspaceKey
+              }
+            ],
+            selections: [
+              {
+                workspaceKey: fixtureBaseWorkspaceKey,
+                profileId: fixtureLegacyProfileId
+              }
+            ]
+          }
+        : {
+            schemaVersion: 1,
+            profiles: [],
+            bindings: [],
+            selections: []
+          };
+      let fixtureCatalogRevision = 0;
+
+      if (fixtureUsesLegacyProfile) {
+        fixtureStorage.set(fixtureLegacyWorkspaceKey, {
+          schemaVersion: 1,
+          groups: [
+            {
+              id: "system-group-uncategorized",
+              name: "미분류 그룹",
+              color: "default",
+              emoji: "",
+              collapsed: false,
+              order: 0,
+              system: true,
+              sections: [
+                {
+                  id: "system-section-uncategorized-system-group-uncategorized",
+                  name: "미분류 섹션",
+                  color: "default",
+                  emoji: "",
+                  collapsed: false,
+                  order: 0,
+                  system: true,
+                  favorites: []
+                }
+              ]
+            }
+          ]
+        });
+        fixtureRevisions.set(fixtureLegacyWorkspaceKey, 2);
+      }
+
+      window.chrome = window.chrome || {};
+      window.chrome.runtime = {
+        async sendMessage(message) {
+          fixtureMessages.push(structuredClone(message));
+          if (message.type === "NFS_PROFILE_CATALOG_GET") {
+            return {
+              ok: true,
+              catalog: structuredClone(fixtureCatalog),
+              revision: fixtureCatalogRevision
+            };
+          }
+          if (message.type === "NFS_PROFILE_CATALOG_SET") {
+            if (message.payload.expectedRevision !== fixtureCatalogRevision) {
+              return {
+                ok: false,
+                error: "fixture profile revision conflict",
+                conflict: true,
+                catalog: structuredClone(fixtureCatalog),
+                revision: fixtureCatalogRevision
+              };
+            }
+            fixtureCatalog = structuredClone(message.payload.catalog);
+            fixtureCatalogRevision += 1;
+            return {
+              ok: true,
+              catalog: structuredClone(fixtureCatalog),
+              revision: fixtureCatalogRevision
+            };
+          }
+
+          const key = message.payload.workspaceKey;
+          if (message.type === "NFS_METADATA_GET" || message.type === "NFS_METADATA_MERGE") {
+            const ids = new Set((fixtureStorage.get(key)?.groups || []).flatMap(group => group.sections.flatMap(section => section.favorites.map(favorite => favorite.pageId))));
+            const cached = new Map((fixtureMetadata.get(key) || []).filter(entry => ids.has(entry.pageId)).map(entry => [entry.pageId, entry]));
+            if (message.type === "NFS_METADATA_MERGE") {
+              for (const entry of message.payload.entries) if (ids.has(entry.pageId)) cached.set(entry.pageId, structuredClone(entry));
+            }
+            const metadata = [...cached.values()];
+            fixtureMetadata.set(key, metadata);
+            return { ok: true, metadata: structuredClone(metadata) };
+          }
+          const fixtureRevision = fixtureRevisions.get(key) || 0;
+          if (message.type === "NFS_STORAGE_GET") {
+            return fixtureStorage.has(key)
+              ? {
+                  ok: true,
+                  workspace: structuredClone(fixtureStorage.get(key)),
+                  revision: fixtureRevision
+                }
+              : { ok: true, revision: fixtureRevision };
+          }
+          if (message.type === "NFS_STORAGE_SET") {
+            if (message.payload.expectedRevision !== fixtureRevision) {
+              return {
+                ok: false,
+                error: "fixture revision conflict",
+                conflict: true,
+                workspace: structuredClone(fixtureStorage.get(key)),
+                revision: fixtureRevision
+              };
+            }
+            const clone = structuredClone(message.payload.workspace);
+            const nextRevision = fixtureRevision + 1;
+            fixtureRevisions.set(key, nextRevision);
+            fixtureStorage.set(key, clone);
+            const remaining = new Set(clone.groups.flatMap(group => group.sections.flatMap(section => section.favorites.map(favorite => favorite.pageId))));
+            fixtureMetadata.set(key, (fixtureMetadata.get(key) || []).filter(entry => remaining.has(entry.pageId)));
+            return { ok: true, workspace: structuredClone(clone), revision: nextRevision };
+          }
+          return { ok: false, error: "Unsupported fixture message" };
+        }
+      };
+      window.prompt = () => { throw new Error("Native prompt is forbidden in the user flow"); };
+      window.confirm = () => { throw new Error("Native confirm is forbidden in the user flow"); };
+    </script>
+    <script src="../src/favorite-tree-model.js?v=0.1.9-title-cache"></script>
+    <script src="../src/profile-catalog.js?v=0.1.9-title-cache"></script>
+    <script src="../src/notion-sidebar-adapter.js?v=0.1.9-title-cache"></script>
+    <script src="../src/favorite-tree-view.js?v=0.1.9-title-cache"></script>
+    <script src="../src/moa-brand.js?v=0.1.9-title-cache"></script>
+    <script src="../src/notion-tree-panel.js?v=0.1.9-title-cache"></script>
+    <script src="../src/content.js?v=0.1.9-title-cache"></script>
+    <script>
+      const wait = (milliseconds) =>
+        new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+
+      function favoriteIds(workspace) {
+        return (workspace?.groups || []).flatMap((group) =>
+          (group.sections || []).flatMap((section) =>
+            (section.favorites || []).map((favorite) => favorite.pageId)
+          )
+        );
+      }
+
+      function nativeDomIsStructurallyPreserved() {
+        const currentRows = [
+          ...document.querySelectorAll("[data-fixture-native-row]")
+        ];
+        return Boolean(
+          fixtureNativePanel.innerHTML === fixtureNativePanelMarkup &&
+            currentRows.length === fixtureNativeRows.length &&
+            fixtureNativeRows.every(
+              ({ row, parent, nextSibling, markup }, index) =>
+                currentRows[index] === row &&
+                row.parentElement === parent &&
+                row.nextElementSibling === nextSibling &&
+                row.outerHTML === markup &&
+                !row.hasAttribute("data-notion-favorite-sections-native-hidden") &&
+                getComputedStyle(row).display !== "none"
+            )
+        );
+      }
+
+      function rectCovers(cover, target, tolerance = 1) {
+        return Boolean(
+          cover.width > 0 &&
+            cover.height > 0 &&
+            cover.left <= target.left + tolerance &&
+            cover.top <= target.top + tolerance &&
+            cover.right >= target.right - tolerance &&
+            cover.bottom >= target.bottom - tolerance
+        );
+      }
+
+      function hasOpaqueBackground(node) {
+        const style = getComputedStyle(node);
+        const color = style.backgroundColor.trim().toLowerCase();
+        if (style.opacity !== "1" || color === "transparent") return false;
+        const slashAlpha = color.match(/\/\s*([0-9.]+)%?\s*\)$/u);
+        if (slashAlpha) {
+          const value = Number(slashAlpha[1]);
+          return slashAlpha[0].includes("%") ? value === 100 : value === 1;
+        }
+        const legacyRgba = color.match(
+          /^rgba\([^,]+,[^,]+,[^,]+,\s*([0-9.]+)\s*\)$/u
+        );
+        return !legacyRgba || Number(legacyRgba[1]) === 1;
+      }
+
+      function openFavoritePicker(treeRoot) {
+        const button = treeRoot.querySelector(
+          'button[aria-label="Notion 즐겨찾기 추가"]'
+        );
+        if (button.getAttribute("aria-expanded") !== "true") button.click();
+      }
+
+      async function submitName(treeRoot, name) {
+        const input = treeRoot.querySelector(".nfs-inline-input");
+        if (!input || treeRoot.activeElement !== input) throw new Error("Inline name input must receive focus");
+        input.value = name;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        treeRoot.querySelector("[data-form-submit]").click();
+        await wait(160);
+      }
+
+      async function confirmInline(treeRoot) {
+        const cancel = treeRoot.querySelector("[data-form-cancel]");
+        if (!cancel || treeRoot.activeElement !== cancel) throw new Error("Destructive confirmation must focus Cancel");
+        treeRoot.querySelector("[data-form-submit]").click();
+        await wait(160);
+      }
+
+      window.setTimeout(async () => {
+        try {
+          const expectedStorageKey = fixtureUsesLegacyProfile
+            ? fixtureLegacyWorkspaceKey
+            : fixtureBaseWorkspaceKey;
+          const primaryNavigation = document.querySelector(
+            "[data-fixture-primary-navigation]"
+          );
+          const contentSurface = document.querySelector(
+            "[data-fixture-content-surface]"
+          );
+          const selectedNativeTab = primaryNavigation.querySelector(
+            '[role="tab"][aria-selected="true"]'
+          );
+          const nativeTabpanel = document.querySelector(
+            "[data-fixture-native-panel]"
+          );
+          const inbox = primaryNavigation.querySelector('[role="tab"][aria-label="Inbox"]');
+          const semanticPrimaryNavigation = Boolean(
+            primaryNavigation.getAttribute("role") === "tablist" &&
+              getComputedStyle(primaryNavigation).display === "flex" &&
+              inbox.parentElement.hasAttribute("data-fixture-inbox-inner") &&
+              getComputedStyle(inbox.parentElement).display === "contents" &&
+              inbox.parentElement.parentElement.hasAttribute(
+                "data-fixture-inbox-wrapper"
+              ) &&
+              getComputedStyle(inbox.parentElement.parentElement).display ===
+                "contents" &&
+              selectedNativeTab?.id &&
+              selectedNativeTab.getAttribute("aria-controls") === nativeTabpanel?.id &&
+              nativeTabpanel?.tagName === "DIV" &&
+              nativeTabpanel.getAttribute("role") === "tabpanel" &&
+              nativeTabpanel.getAttribute("aria-labelledby") === selectedNativeTab.id &&
+              nativeTabpanel.parentElement === contentSurface &&
+              getComputedStyle(contentSurface).display === "flex" &&
+              getComputedStyle(contentSurface).flexDirection === "column" &&
+              getComputedStyle(contentSurface).position === "relative"
+          );
+
+          const menuHost = primaryNavigation.querySelector(
+            "[data-notion-tree-primary-navigation-host]"
+          );
+          const triggerRoot = menuHost?.shadowRoot;
+          const trigger = triggerRoot?.querySelector('button[aria-label="Moa"]');
+          const viewHost = [...contentSurface.children].find((child) =>
+            child.hasAttribute("data-notion-tree-primary-navigation-view-host")
+          );
+          const panelRoot = viewHost?.shadowRoot;
+          const panel = panelRoot?.querySelector(".ntree-panel");
+          const panelInitiallyHidden = Boolean(
+            viewHost?.hidden &&
+              panel?.hidden &&
+              panel.getAttribute("aria-hidden") === "true" &&
+              trigger?.getAttribute("aria-expanded") === "false" &&
+              !trigger?.hasAttribute("aria-selected")
+          );
+          const mountedAfterInbox = Boolean(
+            menuHost &&
+              menuHost.previousElementSibling?.hasAttribute(
+                "data-fixture-inbox-wrapper"
+              )
+          );
+          const viewHostIsDirectLastChild = Boolean(
+            viewHost?.parentElement === contentSurface &&
+              contentSurface.lastElementChild === viewHost
+          );
+          const nativePreservationChecks = [nativeDomIsStructurallyPreserved()];
+          const probeRect = fixtureUnderlayProbe.getBoundingClientRect();
+          const probeX = probeRect.left + probeRect.width / 2;
+          const probeY = probeRect.top + probeRect.height / 2;
+          const probeHitBeforeOpen = document.elementFromPoint(probeX, probeY);
+
+          trigger.click();
+          await wait(120);
+          const panelOpened = Boolean(
+            !viewHost.hidden &&
+              !panel.hidden &&
+              panel.getAttribute("aria-hidden") === "false" &&
+              trigger.getAttribute("aria-expanded") === "true" &&
+              !trigger.hasAttribute("aria-selected")
+          );
+          const viewRect = viewHost.getBoundingClientRect();
+          const surfaceRect = contentSurface.getBoundingClientRect();
+          const overlayCoversContentSurface = rectCovers(viewRect, surfaceRect);
+          const overlayHasOpaqueBackground = Boolean(
+            hasOpaqueBackground(viewHost) && hasOpaqueBackground(panel)
+          );
+          const probeHitWhileOpen = document.elementFromPoint(probeX, probeY);
+          if (probeHitWhileOpen) {
+            probeHitWhileOpen.dispatchEvent(
+              new MouseEvent("pointerdown", {
+                bubbles: true,
+                composed: true,
+                clientX: probeX,
+                clientY: probeY
+              })
+            );
+            probeHitWhileOpen.dispatchEvent(
+              new MouseEvent("click", {
+                bubbles: true,
+                composed: true,
+                clientX: probeX,
+                clientY: probeY
+              })
+            );
+          }
+          await wait(20);
+          const underlayBlockedWhileOpen = Boolean(
+            probeHitBeforeOpen &&
+              fixtureNativePanel.contains(probeHitBeforeOpen) &&
+              probeHitWhileOpen &&
+              !fixtureNativePanel.contains(probeHitWhileOpen) &&
+              fixtureUnderlayClickCount === 0 &&
+              !viewHost.hidden
+          );
+          nativePreservationChecks.push(nativeDomIsStructurallyPreserved());
+          const contentHost = panelRoot.querySelector(
+            "[data-notion-tree-panel-content-host]"
+          );
+          const treeRoot = contentHost?.shadowRoot;
+          const emptyBeforeSelection =
+            treeRoot?.querySelectorAll(".nfs-favorite").length === 0;
+          const emptySystemPathHidden = Boolean(
+            !treeRoot.textContent.includes("미분류 그룹") &&
+              treeRoot.querySelector(".nfs-onboarding")
+          );
+          const refreshLabelIsExplicit =
+            treeRoot
+              .querySelector('button[aria-label="즐겨찾기 목록 갱신"]')
+              ?.textContent.trim() === "목록 갱신";
+          const keyTargetIsAtLeast32 = Boolean(
+            treeRoot
+              .querySelector('button[aria-label="그룹 추가"]')
+              ?.getBoundingClientRect().height >= 32 &&
+              treeRoot
+                .querySelector('button[aria-label="Notion 즐겨찾기 추가"]')
+                ?.getBoundingClientRect().height >= 32
+          );
+
+          treeRoot.querySelector('button[aria-label="그룹 추가"]').click();
+          await submitName(treeRoot, "업무");
+          treeRoot
+            .querySelector('button[aria-label="업무에 섹션 추가"]')
+            .click();
+          await submitName(treeRoot, "프로젝트");
+          const explicitDestinationCreated = Boolean(
+            treeRoot.textContent.includes("업무") &&
+              treeRoot.textContent.includes("프로젝트") &&
+              !treeRoot.textContent.includes("미분류 섹션")
+          );
+
+          openFavoritePicker(treeRoot);
+          await wait(40);
+          let favoriteSearch = treeRoot.querySelector(
+            'input[aria-label="즐겨찾기 검색"]'
+          );
+          const pickerSearchFocused = Boolean(
+            favoriteSearch && treeRoot.activeElement === favoriteSearch
+          );
+          if (favoriteSearch) {
+            favoriteSearch.value = "road";
+            favoriteSearch.dispatchEvent(new Event("input", { bubbles: true }));
+            await wait(40);
+          }
+          const filteredRoadmap = treeRoot.querySelector(
+            'input[aria-label="Roadmap 선택"]'
+          );
+          const filteredDecisions = treeRoot.querySelector(
+            'input[aria-label="Decisions 선택"]'
+          );
+          const pickerSearchFiltered = Boolean(
+            filteredRoadmap &&
+              filteredRoadmap.closest("li")?.hidden === false &&
+              filteredDecisions?.closest("li")?.hidden === true &&
+              treeRoot.textContent.includes("검색 결과 1개")
+          );
+          favoriteSearch.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Escape",
+              bubbles: true,
+              composed: true
+            })
+          );
+          await wait(40);
+          const layeredEscapeClearedSearch = Boolean(
+            !viewHost.hidden &&
+              trigger.getAttribute("aria-expanded") === "true" &&
+              treeRoot.querySelector('input[aria-label="즐겨찾기 검색"]')
+                ?.value === ""
+          );
+          treeRoot
+            .querySelector('input[aria-label="즐겨찾기 검색"]')
+            .dispatchEvent(
+              new KeyboardEvent("keydown", {
+                key: "Escape",
+                bubbles: true,
+                composed: true
+              })
+            );
+          await wait(40);
+          const layeredEscapeClosedPickerOnly = Boolean(
+            !viewHost.hidden &&
+              trigger.getAttribute("aria-expanded") === "true" &&
+              !treeRoot.querySelector('input[aria-label="즐겨찾기 검색"]')
+          );
+          const escapeFromEveryPickerControl = [];
+          for (const selector of [
+            'input[aria-label="Roadmap 선택"]',
+            'select[aria-label="즐겨찾기 추가 목적지"]',
+            'button[aria-label="선택한 즐겨찾기 추가"]'
+          ]) {
+            openFavoritePicker(treeRoot);
+            await wait(40);
+            const checkbox = treeRoot.querySelector('input[aria-label="Roadmap 선택"]');
+            if (!checkbox.checked) checkbox.click();
+            const control = treeRoot.querySelector(selector);
+            control.focus();
+            const focused = treeRoot.activeElement === control;
+            control.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, composed: true }));
+            await wait(40);
+            escapeFromEveryPickerControl.push(focused && !viewHost.hidden && !treeRoot.querySelector(".nfs-favorite-picker"));
+          }
+          openFavoritePicker(treeRoot);
+          await wait(40);
+          favoriteSearch = treeRoot.querySelector(
+            'input[aria-label="즐겨찾기 검색"]'
+          );
+          if (favoriteSearch) {
+            favoriteSearch.value = "";
+            favoriteSearch.dispatchEvent(new Event("input", { bubbles: true }));
+            await wait(40);
+          }
+          const roadmapOption = treeRoot.querySelector(
+            'input[aria-label="Roadmap 선택"]'
+          );
+          const decisionsOption = treeRoot.querySelector(
+            'input[aria-label="Decisions 선택"]'
+          );
+          const archiveOption = treeRoot.querySelector(
+            'input[aria-label="Archive 선택"]'
+          );
+          const pickerOfferedBoth = Boolean(
+            roadmapOption && decisionsOption && archiveOption
+          );
+          roadmapOption.click();
+          decisionsOption.click();
+          const destinationSelect = treeRoot.querySelector(
+            'select[aria-label="즐겨찾기 추가 목적지"]'
+          );
+          const projectOption = [...destinationSelect.options].find(
+            (option) => option.textContent.trim() === "업무 / 프로젝트"
+          );
+          destinationSelect.value = projectOption?.value || "";
+          destinationSelect.dispatchEvent(new Event("change", { bubbles: true }));
+          const selectedDestinationExplicitly = Boolean(
+            projectOption &&
+              destinationSelect.value === projectOption.value &&
+              treeRoot.textContent.includes("2개 선택")
+          );
+          const fixtureSidebar = document.querySelector(
+            'nav[aria-label="Notion sidebar"]'
+          );
+          fixtureSidebar.style.width = "280px";
+          await wait(40);
+          const pickerAtNarrowWidth = treeRoot.querySelector(
+            ".nfs-favorite-picker"
+          );
+          const pickerHasNoHorizontalOverflow = Boolean(
+            pickerAtNarrowWidth &&
+              pickerAtNarrowWidth.scrollWidth <= pickerAtNarrowWidth.clientWidth
+          );
+          fixtureSidebar.style.width = "320px";
+          await wait(40);
+          const bulkMessageOffset = fixtureMessages.length;
+          const bulkRevisionBefore = fixtureRevisions.get(expectedStorageKey) || 0;
+          treeRoot
+            .querySelector('button[aria-label="선택한 즐겨찾기 추가"]')
+            .click();
+          await wait(160);
+          nativePreservationChecks.push(nativeDomIsStructurallyPreserved());
+
+          const afterAdd = fixtureStorage.get(expectedStorageKey);
+          const projectSection = afterAdd?.groups
+            ?.find((group) => group.name === "업무")
+            ?.sections?.find((section) => section.name === "프로젝트");
+          const bulkSetMessages = fixtureMessages
+            .slice(bulkMessageOffset)
+            .filter((message) => message.type === "NFS_STORAGE_SET");
+          const explicitSelectionOnly = Boolean(
+            favoriteIds(afterAdd).length === 2 &&
+              projectSection?.favorites?.length === 2 &&
+              favoriteIds(afterAdd).includes(
+                "0123456789abcdef0123456789abcdef"
+              ) &&
+              favoriteIds(afterAdd).includes(
+                "fedcba9876543210fedcba9876543210"
+              ) &&
+              !favoriteIds(afterAdd).includes(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ) &&
+              treeRoot.textContent.includes("Roadmap") &&
+              treeRoot.textContent.includes("Decisions")
+          );
+          const bulkAddWasOneCasSet = Boolean(
+            bulkSetMessages.length === 1 &&
+              bulkSetMessages[0]?.payload?.expectedRevision ===
+                bulkRevisionBefore &&
+              (fixtureRevisions.get(expectedStorageKey) || 0) ===
+                bulkRevisionBefore + 1
+          );
+
+          treeRoot.querySelector('button[aria-label="프로젝트 섹션 접기"]').focus();
+          treeRoot.querySelector('button[aria-label="프로젝트 섹션 접기"]').click();
+          await wait(160);
+          const sectionCollapsedOnce = treeRoot.querySelector('button[aria-label="프로젝트 섹션 펼치기"]');
+          const oneClickSectionCollapse = Boolean(sectionCollapsedOnce && sectionCollapsedOnce.getAttribute("aria-expanded") === "false" && treeRoot.activeElement === sectionCollapsedOnce);
+          sectionCollapsedOnce?.click();
+          await wait(160);
+          treeRoot.querySelector('button[aria-label="업무 그룹 접기"]').focus();
+          treeRoot.querySelector('button[aria-label="업무 그룹 접기"]').click();
+          await wait(160);
+          const groupCollapsedOnce = treeRoot.querySelector('button[aria-label="업무 그룹 펼치기"]');
+          const oneClickGroupCollapse = Boolean(groupCollapsedOnce && groupCollapsedOnce.getAttribute("aria-expanded") === "false" && treeRoot.activeElement === groupCollapsedOnce);
+          groupCollapsedOnce?.click();
+          await wait(160);
+
+          treeRoot
+            .querySelector('button[aria-label="즐겨찾기 목록 갱신"]')
+            .click();
+          await wait(220);
+          nativePreservationChecks.push(nativeDomIsStructurallyPreserved());
+          const afterRefresh = fixtureStorage.get(expectedStorageKey);
+          const refreshDidNotImportDecisions = Boolean(
+            favoriteIds(afterRefresh).length === 2 &&
+              !favoriteIds(afterRefresh).includes(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              ) &&
+              treeRoot.textContent.includes(
+                "즐겨찾기 목록을 갱신했습니다"
+              )
+          );
+
+          let roadmapMenu = treeRoot.querySelector(
+            'summary[aria-label="Roadmap 메뉴"]'
+          );
+          roadmapMenu.click();
+          let removeButton = [...treeRoot.querySelectorAll("button")].find(
+            (button) => button.textContent.trim() === "Moa에서 제거"
+          );
+          removeButton.focus();
+          removeButton.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Escape",
+              bubbles: true,
+              composed: true
+            })
+          );
+          await wait(40);
+          const layeredEscapeClosedMenuOnly = Boolean(
+            !roadmapMenu.closest("details")?.open &&
+              !viewHost.hidden &&
+              trigger.getAttribute("aria-expanded") === "true" &&
+              treeRoot.activeElement === roadmapMenu
+          );
+          roadmapMenu.click();
+          removeButton = [...treeRoot.querySelectorAll("button")].find(
+            (button) => button.textContent.trim() === "Moa에서 제거"
+          );
+          removeButton.click();
+          await confirmInline(treeRoot);
+          nativePreservationChecks.push(nativeDomIsStructurallyPreserved());
+          const afterRemove = favoriteIds(
+            fixtureStorage.get(expectedStorageKey)
+          );
+          const removedExplicitly = Boolean(
+            afterRemove.length === 1 &&
+              afterRemove[0] === "fedcba9876543210fedcba9876543210"
+          );
+          treeRoot.querySelector('button[aria-label="마지막 작업 되돌리기"]').click();
+          await wait(160);
+          const removalUndoRestoresPlacement = Boolean(
+            favoriteIds(fixtureStorage.get(expectedStorageKey)).length === 2 &&
+            fixtureStorage.get(expectedStorageKey).groups.find(group => group.name === "업무").sections.find(section => section.name === "프로젝트").favorites.length === 2
+          );
+          treeRoot.querySelector('summary[aria-label="Roadmap 메뉴"]').click();
+          [...treeRoot.querySelectorAll("button")].find(button => button.textContent.trim() === "Moa에서 제거").click();
+          await confirmInline(treeRoot);
+
+          openFavoritePicker(treeRoot);
+          await wait(40);
+          treeRoot
+            .querySelector('input[aria-label="Roadmap 선택"]')
+            .click();
+          const readdDestination = treeRoot.querySelector(
+            'select[aria-label="즐겨찾기 추가 목적지"]'
+          );
+          readdDestination.value = projectOption.value;
+          readdDestination.dispatchEvent(new Event("change", { bubbles: true }));
+          treeRoot
+            .querySelector('button[aria-label="선택한 즐겨찾기 추가"]')
+            .click();
+          await wait(160);
+          const resetMessageOffset = fixtureMessages.length;
+          const resetRevisionBefore = fixtureRevisions.get(expectedStorageKey) || 0;
+          treeRoot
+            .querySelector('button[aria-label="즐겨찾기 트리 초기화"]')
+            .click();
+          await confirmInline(treeRoot);
+          nativePreservationChecks.push(nativeDomIsStructurallyPreserved());
+
+          const resetMessages = fixtureMessages.slice(resetMessageOffset);
+          const resetSetMessages = resetMessages.filter(
+            (message) => message.type === "NFS_STORAGE_SET"
+          );
+          const resetWorkspace = fixtureStorage.get(expectedStorageKey);
+          const resetGroup = resetWorkspace?.groups?.[0];
+          const resetSection = resetGroup?.sections?.[0];
+          const resetToEmptyTree = Boolean(
+            resetWorkspace?.groups?.length === 1 &&
+              resetGroup?.system === true &&
+              resetGroup?.sections?.length === 1 &&
+              resetSection?.system === true &&
+              resetSection?.favorites?.length === 0 &&
+              treeRoot.querySelectorAll(".nfs-favorite").length === 0
+          );
+          const resetWasOneCasSet = Boolean(
+            resetSetMessages.length === 1 &&
+              resetSetMessages[0]?.payload?.expectedRevision === resetRevisionBefore &&
+              (fixtureRevisions.get(expectedStorageKey) || 0) ===
+                resetRevisionBefore + 1
+          );
+          const resetMessageCount = fixtureMessages.filter(
+            (message) => message.type === "NFS_STORAGE_RESET"
+          ).length;
+          const storageScopeCorrect = fixtureMessages
+            .filter((message) => message.type === "NFS_STORAGE_SET")
+            .every((message) => message.payload.workspaceKey === expectedStorageKey);
+          const closeButton = panelRoot.querySelector(
+            'button[aria-label="Moa 패널 닫기"]'
+          );
+          closeButton.click();
+          await wait(40);
+          const probeHitAfterClose = document.elementFromPoint(probeX, probeY);
+          probeHitAfterClose?.click();
+          const closeRestoredNativeSurface = Boolean(
+            viewHost.hidden &&
+              panel.hidden &&
+              trigger.getAttribute("aria-expanded") === "false" &&
+              !trigger.hasAttribute("aria-selected") &&
+              probeHitAfterClose &&
+              fixtureNativePanel.contains(probeHitAfterClose) &&
+              fixtureUnderlayClickCount === 1 &&
+              nativeDomIsStructurallyPreserved()
+          );
+          const nativeRowsStructurallyPreserved =
+            nativePreservationChecks.every(Boolean);
+
+          const assertions = {
+            semanticPrimaryNavigation,
+            mountedAfterInbox,
+            viewHostIsDirectLastChild,
+            panelInitiallyHidden,
+            panelOpened,
+            overlayCoversContentSurface,
+            overlayHasOpaqueBackground,
+            underlayBlockedWhileOpen,
+            emptyBeforeSelection,
+            emptySystemPathHidden,
+            refreshLabelIsExplicit,
+            keyTargetIsAtLeast32,
+            explicitDestinationCreated,
+            pickerSearchFocused,
+            pickerSearchFiltered,
+            layeredEscapeClearedSearch,
+            layeredEscapeClosedPickerOnly,
+            escapeFromEveryPickerControl: escapeFromEveryPickerControl.every(Boolean),
+            pickerOfferedBoth,
+            selectedDestinationExplicitly,
+            pickerHasNoHorizontalOverflow,
+            explicitSelectionOnly,
+            bulkAddWasOneCasSet,
+            oneClickSectionCollapse,
+            oneClickGroupCollapse,
+            refreshDidNotImportDecisions,
+            layeredEscapeClosedMenuOnly,
+            removedExplicitly,
+            removalUndoRestoresPlacement,
+            resetToEmptyTree,
+            resetWasOneCasSet,
+            resetMessageCountIsZero: resetMessageCount === 0,
+            storageScopeCorrect,
+            nativeRowsStructurallyPreserved,
+            closeRestoredNativeSurface
+          };
+          const failures = Object.entries(assertions)
+            .filter(([, passed]) => !passed)
+            .map(([name]) => name);
+          const passed = failures.length === 0;
+
+          document.body.dataset.smoke = passed ? "pass" : "fail";
+          document.querySelector("#smoke-result").textContent = passed
+            ? "PASS: Moa internal surface, explicit management, native preservation, and storage scope"
+            : `FAIL: ${failures.join(", ")}`;
+        } catch (error) {
+          document.body.dataset.smoke = "fail";
+          document.querySelector("#smoke-result").textContent = `FAIL: ${error.message}\n${error.stack}`;
+        }
+      }, 1000);
+    </script>
+  </body>
+</html>

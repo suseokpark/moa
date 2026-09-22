@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<title>Moa current page and child navigation regression</title>
+<style>
+body { margin:20px; font:14px system-ui; background:#f7f7f5; color:#37352f; }
+#host { width:340px; min-height:620px; background:white; border:1px solid #ddd; }
+#results { position:absolute; left:390px; top:20px; max-width:760px; white-space:pre-wrap; }
+</style>
+<div id="host"></div><pre id="results">RUNNING</pre>
+<script src="../src/favorite-tree-model.js?v=0.1.9-title-cache"></script>
+<script src="../src/favorite-tree-view.js?v=0.1.9-title-cache"></script>
+<script>
+(async () => {
+  const model = NotionFavoriteSections.model;
+  const host = document.querySelector('#host');
+  const results = document.querySelector('#results');
+  const report = [];
+  const ids = Array.from({length:8}, (_, index) => String(index + 1).repeat(32));
+  const node = (index, title, children = []) => ({pageId:ids[index], title, href:`https://app.notion.com/${ids[index]}`, icon:'📄', children});
+  let workspace, view, navigation, activePageId, writeCount;
+  const settle = () => new Promise(resolve => setTimeout(resolve, 10));
+  const check = (condition, message) => { if (!condition) throw new Error(message); };
+  const find = selector => host.shadowRoot.querySelector(selector);
+  const all = selector => [...host.shadowRoot.querySelectorAll(selector)];
+  const favorite = () => find(`.nfs-favorite[data-page-id="${ids[0]}"]`);
+  const current = () => find('.nfs-current-page');
+  const click = async control => { check(control, 'Missing control'); control.focus(); control.click(); await settle(); };
+  const update = next => view.update({workspace, pageNavigation:navigation, activePageId, ...next});
+  function setup({active = 3, sameCurrent = false, collapsed = true} = {}) {
+    view?.destroy(); writeCount = 0;
+    const grandchild = node(2, '상세 계획');
+    const child = node(1, '프로젝트', [grandchild]);
+    const parent = node(0, '업무 홈', [child]);
+    const opened = sameCurrent ? parent : active === 2 ? grandchild : node(3, '현재 작업', [node(4, '회의 메모')]);
+    navigation = {currentPage:opened, roots:[parent, opened], scopeSafe:true, renderedOnly:true, reason:'rendered-dom'};
+    activePageId = ids[active];
+    workspace = model.createWorkspace();
+    workspace = model.createGroup(workspace, {id:'work', name:'업무', collapsed});
+    workspace = model.createSection(workspace, 'work', {id:'projects', name:'프로젝트', collapsed});
+    workspace = model.addFavorite(workspace, ids[0], {sectionId:'projects'});
+    const commit = next => { writeCount += 1; workspace = next; update(); };
+    view = NotionFavoriteSections.view.createFavoriteTreeView({
+      host, workspace, favorites:[parent], activePageId, pageNavigation:navigation, workspaceKey:'workspace:one',
+      importPreview:{canManage:true, canReset:true},
+      callbacks:{onToggleGroup:id => commit(model.toggleGroup(workspace,id)), onToggleSection:id => commit(model.toggleSection(workspace,id))}
+    });
+  }
+  async function test(name, fn) { await fn(); report.push(`PASS ${name}`); results.textContent = report.join('\n'); }
+  try {
+    await test('A current page outside Favorites is shown without being added or counted', async () => {
+      setup();
+      check(current().textContent.includes('현재 작업'), 'Current non-Favorite missing');
+      check(current().querySelector(`a[aria-current="page"]`).href.endsWith(ids[3]), 'Current link missing');
+      check(current().querySelector(`[data-page-id="${ids[4]}"] a`).href.endsWith(ids[4]), 'Current child link missing');
+      check(workspace.groups[0].sections[0].favorites.length === 1 && writeCount === 0, 'Derived current page changed saved Favorites');
+      check(find('[data-section-id="projects"] > .nfs-row .nfs-count').textContent === '1', 'Derived child changed count');
+      check(find('.nfs-page-navigation-note').textContent.includes('로드된 하위 페이지만'), 'Partial coverage not explained');
+    });
+    await test('Active descendant reveals its group, section and each ancestor, highlighting only itself', async () => {
+      setup({active:2});
+      check(!find('[data-group-id="work"] > .nfs-section-list').hidden, 'Group not revealed');
+      check(!find('[data-section-id="projects"] > .nfs-favorite-list').hidden, 'Section not revealed');
+      const branchToggles = [...favorite().querySelectorAll('.nfs-page-toggle')];
+      check(branchToggles.length === 2 && branchToggles.every(button => button.getAttribute('aria-expanded') === 'true'), 'Ancestor branches not revealed');
+      const marked = [...find('.nfs-tree').querySelectorAll('[aria-current="page"]')];
+      check(marked.length === 1 && marked[0].href.endsWith(ids[2]), 'Active marking is not exact');
+      check(!favorite().classList.contains('nfs-favorite-active'), 'Ancestor incorrectly marked current');
+      check(!favorite().querySelector('.nfs-page-tree-list summary, .nfs-page-tree-list .nfs-drag-handle'), 'Derived children gained management controls');
+      check(writeCount === 0, 'Auto-expansion wrote persistence');
+    });
+    await test('Child anchors retain browser href and same-tab default behavior', async () => {
+      setup({active:2});
+      const link = favorite().querySelector(`.nfs-page-tree-item[data-page-id="${ids[2]}"] a`);
+      check(link.tagName === 'A' && link.getAttribute('href') === `https://app.notion.com/${ids[2]}` && !link.hasAttribute('target'), 'Not a native same-tab link');
+      let clicked = false;
+      // Only this fixture cancels navigation so the regression page stays open.
+      link.addEventListener('click', event => { check(!event.defaultPrevented, 'View intercepted native link'); clicked = true; event.preventDefault(); }, {once:true});
+      link.click(); check(clicked, 'Native anchor click was not delivered');
+      check(writeCount === 0, 'Link click changed stored Favorites');
+    });
+    await test('Explicit fold survives updates until the active page changes', async () => {
+      setup({active:2}); await click(favorite().querySelector(':scope > .nfs-row .nfs-page-toggle'));
+      check(favorite().querySelector(':scope > .nfs-page-tree-list').hidden, 'User collapse did not work');
+      update({status:{message:'목록을 확인했습니다.'}});
+      check(favorite().querySelector(':scope > .nfs-page-tree-list').hidden, 'Background update reopened branch');
+      activePageId = ids[1]; update();
+      check(!favorite().querySelector(':scope > .nfs-page-tree-list').hidden, 'New active descendant not revealed');
+      check(writeCount === 0, 'Transient fold persisted');
+    });
+    await test('Group and section can each stay collapsed around an active descendant', async () => {
+      setup({active:2}); await click(find('[data-section-id="projects"] > .nfs-row .nfs-toggle'));
+      update(); check(find('[data-section-id="projects"] > .nfs-favorite-list').hidden, 'Section manually folded then reopened');
+      await click(find('[data-group-id="work"] > .nfs-row .nfs-toggle'));
+      update(); check(find('[data-group-id="work"] > .nfs-section-list').hidden, 'Group manually folded then reopened');
+    });
+    await test('Duplicate current/Favorite roots have distinct IDs and stable keyboard focus', async () => {
+      setup({active:0, sameCurrent:true, collapsed:false});
+      const listIds = all('[id]').map(element => element.id);
+      check(new Set(listIds).size === listIds.length, 'Duplicate DOM IDs');
+      const focusKeys = all('[data-focus-key]').map(element => element.getAttribute('data-focus-key'));
+      check(new Set(focusKeys).size === focusKeys.length, 'Duplicate focus identities');
+      let toggle = favorite().querySelector(':scope > .nfs-row .nfs-page-toggle'); toggle.focus();
+      toggle.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowRight', bubbles:true, cancelable:true})); await settle();
+      toggle = favorite().querySelector(':scope > .nfs-row .nfs-page-toggle');
+      check(toggle.getAttribute('aria-expanded') === 'true' && host.shadowRoot.activeElement === toggle, 'Right arrow lost Favorite focus');
+      toggle.dispatchEvent(new KeyboardEvent('keydown', {key:'ArrowLeft', bubbles:true, cancelable:true})); await settle();
+      toggle = favorite().querySelector(':scope > .nfs-row .nfs-page-toggle');
+      check(toggle.getAttribute('aria-expanded') === 'false' && host.shadowRoot.activeElement === toggle, 'Left arrow lost Favorite focus');
+      check(current().querySelector('.nfs-page-toggle').getAttribute('aria-expanded') === 'true', 'Current card fold affected Favorite');
+    });
+    await test('Unsafe, credential and mismatched-page child URLs cannot become clickable links', async () => {
+      setup();
+      const urls = ['javascript:alert(1)', `https://evil.example/${ids[5]}`, `https://user:secret@app.notion.com/${ids[5]}`, `https://app.notion.com/${ids[0]}`];
+      for (const href of urls) {
+        navigation.currentPage.children = [{...node(5,'확인 필요'), href, icon:'https://remote.example/image.png'}]; update();
+        const child = current().querySelector(`[data-page-id="${ids[5]}"]`);
+        check(child && !child.querySelector('a') && !child.querySelector('img'), `Unsafe href/icon rendered: ${href}`);
+      }
+    });
+    await test('Unknown workspace shows safe current identity but no trusted child relationships', async () => {
+      setup(); navigation.scopeSafe = false; update();
+      check(current().querySelector('a')?.href.endsWith(ids[3]), 'Safe current page identity missing');
+      check(!current().querySelector('.nfs-page-toggle') && !favorite().querySelector('.nfs-page-toggle'), 'Unsafe relationships shown');
+      check(current().textContent.includes('워크스페이스를 확인'), 'Scope limitation unexplained');
+    });
+    await test('Workspace change clears old derived data and all transient child folds', async () => {
+      setup({active:0, sameCurrent:true, collapsed:false}); await click(current().querySelector('.nfs-page-toggle'));
+      view.update({workspaceKey:'workspace:two', workspace});
+      check(!find('.nfs-current-page') && !favorite().querySelector('.nfs-page-toggle'), 'Previous workspace navigation leaked');
+      update(); check(current().querySelector('.nfs-page-toggle').getAttribute('aria-expanded') === 'true', 'Previous workspace fold leaked');
+    });
+    await test('Cyclic, repeated and deeply nested input is bounded and read only', async () => {
+      setup();
+      const root = node(0,'순환 검사'); const child = node(1,'중복 검사');
+      root.children = [child, child]; child.children = [root];
+      navigation = {currentPage:root, roots:[root,root], scopeSafe:true}; update();
+      check(current().querySelectorAll('.nfs-page-tree-item').length === 2, 'Cycle or sibling duplicate rendered');
+      check(root.children.length === 2 && child.children[0] === root, 'Input graph was mutated');
+      let deep = node(0,'깊은 목록'); const top = deep;
+      for (let index = 20; index < 2000; index += 1) { const next = {pageId:index.toString(16).padStart(32,'0'), title:`단계 ${index}`, href:`https://app.notion.com/${index.toString(16).padStart(32,'0')}`, children:[]}; deep.children = [next]; deep = next; }
+      navigation = {currentPage:top, roots:[top], scopeSafe:true}; update();
+      check(all('.nfs-page-tree-item').length < 40 && writeCount === 0, 'Deep graph was not bounded');
+    });
+    await test('Unavailable children are described as unverified rather than nonexistent', async () => {
+      setup(); navigation.currentPage.children = []; update();
+      check(current().textContent.includes('아직 하위 페이지를 확인하지 못했어요') && !current().textContent.includes('하위 페이지 없음'), 'Unknown children described as absent');
+    });
+    await test('Auto-scroll prioritizes the current-page card over the same active page in Favorites', async () => {
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      const originalScrollIntoView = Element.prototype.scrollIntoView;
+      const targets = [];
+      Element.prototype.scrollIntoView = function(options) {
+        if (this.isConnected) targets.push({element:this, options});
+      };
+      try {
+        setup({active:2});
+        check(find('.nfs-tree [aria-current="page"]') && current().querySelector('[aria-current="page"]'), 'Both current and managed copies must exist for this regression');
+        await new Promise(resolve => requestAnimationFrame(resolve));
+        check(targets.length === 1 && current().contains(targets[0].element), 'Auto-scroll selected the managed copy instead of keeping the current-page card visible');
+        check(targets[0].options?.block === 'nearest', 'Current-page reveal changed its scroll alignment');
+      } finally {
+        Element.prototype.scrollIntoView = originalScrollIntoView;
+      }
+    });
+    setup({active:2});
+    results.textContent = `PASS: ${report.length} page navigation regressions\n` + report.join('\n');
+    document.title = `PASS ${report.length}: Moa page navigation`;
+    window.pageNavigationResult = {ok:true, count:report.length, report};
+    document.body.dataset.smoke = 'pass';
+  } catch (error) {
+    results.textContent = report.join('\n') + '\nFAIL: ' + error.stack;
+    document.title = 'FAIL: Moa page navigation';
+    window.pageNavigationResult = {ok:false, report, error:error.message};
+    document.body.dataset.smoke = 'fail';
+    console.error(error);
+  }
+  window.pageNavigationFixture = {get view(){return view}, setup, ids, get navigation(){return navigation}};
+})();
+</script>
+</html>

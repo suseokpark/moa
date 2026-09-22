@@ -1,0 +1,173 @@
+:root {
+  color-scheme: light dark;
+  font-family:
+    Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #fbfaf8;
+  color: #292725;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 368px;
+  margin: 0;
+  background: #fbfaf8;
+  color: #292725;
+}
+
+.panel {
+  padding: 18px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e7e3dd;
+}
+
+.mark {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  place-items: center;
+  border: 1px solid #e6e3db;
+  border-radius: 12px;
+  background: #f6f3ec;
+}
+
+.mark img { display: block; }
+.korean-name { margin-left: 5px; color: #6b746e; font-size: 12px; font-weight: 500; }
+
+h1,
+h2,
+p {
+  margin-top: 0;
+}
+
+h1 {
+  margin-bottom: 3px;
+  font-size: 23px;
+  line-height: 1.3;
+}
+
+h2 {
+  margin-bottom: 8px;
+  color: #4b4844;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.version {
+  margin-bottom: 0;
+  color: #85807a;
+  font-size: 11px;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 14px 0 10px;
+  color: #47795b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.open-notion {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #164c45;
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.open-notion:hover { background: #0e3d37; }
+.open-notion:focus-visible {
+  outline: 2px solid #164c45;
+  outline-offset: 3px;
+}
+
+section + section {
+  margin-top: 15px;
+}
+
+ol,
+ul {
+  margin: 0;
+  padding-left: 19px;
+}
+
+li,
+.notice p {
+  color: #5a5651;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+li + li {
+  margin-top: 4px;
+}
+
+.notice,
+.privacy {
+  padding: 12px;
+  border: 1px solid #e5e0d8;
+  border-radius: 9px;
+  background: #f4f1ec;
+}
+
+.notice p {
+  margin-bottom: 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root,
+  body {
+    background: #202020;
+    color: #f0efed;
+  }
+
+  .header {
+    border-color: #3a3937;
+  }
+
+  .mark {
+    border-color: #f6f3ec;
+  }
+
+  .korean-name { color: #a3d9c5; }
+  .open-notion { background: #a3d9c5; color: #164c45; }
+  .open-notion:hover { background: #bce7d8; }
+  .open-notion:focus-visible { outline-color: #a3d9c5; }
+
+  h2 {
+    color: #d3d0cc;
+  }
+
+  .version,
+  li,
+  .notice p {
+    color: #bbb7b2;
+  }
+
+  .status {
+    color: #86c99c;
+  }
+
+  .notice,
+  .privacy {
+    border-color: #403e3a;
+    background: #292826;
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "moa",
+  "version": "0.1.9",
+  "private": true,
+  "description": "Organize Notion favorites into collapsible groups and sections.",
+  "type": "module",
+  "scripts": {
+    "build:extension-icons": "node extension/notion-favorite-sections/scripts/build-brand-assets.mjs",
+    "check:extension-package": "node extension/notion-favorite-sections/scripts/package-extension.mjs --check",
+    "package:extension": "node extension/notion-favorite-sections/scripts/package-extension.mjs",
+    "start": "node server.mjs",
+    "test": "node --test"
+  }
+}

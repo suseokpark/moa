@@ -1,0 +1,7 @@
+[data-notion-favorite-sections-host][hidden] {
+  display: block !important;
+}
+
+[data-notion-favorite-sections-native-hidden] {
+  display: none !important;
+}

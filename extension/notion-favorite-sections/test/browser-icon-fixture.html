@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<title>Moa icon regression</title>
+<style>body{font:14px system-ui;margin:24px;color:#37352f;background:#fafafa}#host{width:360px;min-height:500px;background:white}#source{margin:16px 0;display:flex;gap:12px}#source a{color:inherit;text-decoration:none}#result{white-space:pre-wrap}h1{font-size:20px}</style>
+<h1>Moa · 아이콘 회귀 검사</h1>
+<p>실제 Notion의 접근성 설명 + 이모지 구조를 재현한 로컬 화면입니다.</p>
+<section id="source" aria-label="Favorites"></section>
+<div id="host"></div><pre id="result">RUNNING</pre>
+<script src="../src/notion-sidebar-adapter.js?v=0.1.9-title-cache"></script>
+<script src="../src/favorite-tree-model.js?v=0.1.9-title-cache"></script>
+<script src="../src/favorite-tree-view.js?v=0.1.9-title-cache"></script>
+<script>
+(async()=>{
+ const {adapter,model,view}=NotionFavoriteSections;
+ const source=document.querySelector('#source'),host=document.querySelector('#host'),result=document.querySelector('#result');
+ const cases=[
+  {label:'페이지 아이콘 변경',emoji:'🚀',title:'제품 기획',expected:'🚀'},
+  {label:'페이지 아이콘 변경',emoji:'⚒️',title:'업무 문서',expected:'⚒️'},
+  {label:'페이지 아이콘 변경',emoji:'',title:'개인 페이지',expected:null},
+  {label:'페이지 아이콘 변경',emoji:'🏠',title:'팀 홈',expected:'🏠'},
+  {label:'📌',emoji:'',title:'📌 직접 쓴 제목',expected:'📌'},
+  {label:'Change page icon',emoji:'👩🏽‍💻',title:'개발 문서',expected:'👩🏽‍💻'}
+ ];
+ for(const [index,item] of cases.entries()){
+  const a=document.createElement('a');a.href='https://app.notion.com/'+String(index+1).repeat(32);
+  a.setAttribute('role','treeitem');a.setAttribute('aria-level','1');
+  const icon=document.createElement('span');icon.setAttribute('role','img');icon.setAttribute('aria-label',item.label);icon.textContent=item.emoji;
+  const title=document.createElement('span');title.textContent=item.title;
+  a.append(icon,title);source.append(a);
+ }
+ const favorites=adapter.readFavorites(source);
+ let workspace=model.createWorkspace();
+ const tree=view.createFavoriteTreeView({host,workspace,favorites,activePageId:favorites[0]?.pageId,importPreview:{canManage:true,canReset:true}});
+ const root=host.shadowRoot;root.querySelector('.nfs-add-favorite-button').click();
+ const checks=[];function check(ok,msg){if(!ok)throw Error(msg);checks.push('PASS '+msg)}
+ try{
+  check(favorites.length===cases.length,'actual adapter reads all six rows');
+  for(const [i,item]of cases.entries()){
+   check(favorites[i].icon===item.expected,'icon '+i+' excludes descriptive accessibility text');
+   check(favorites[i].title===item.title,'title '+i+' preserves authored text without duplicating separate emoji');
+  }
+  const values=['페이지 아이콘 변경','Change page icon','/icons/page.svg','//example.test/icon.svg','https://example.test/a.png','data:image/svg+xml,<svg/>','blob:opaque','🚀 text','🚀🚀','\u202Ebad','🇰🇷','1️⃣','👨‍👩‍👧‍👦','🏴\u{E0067}\u{E0062}\u{E0065}\u{E006E}\u{E0067}\u{E007F}'];
+  const extra=values.map((icon,i)=>({pageId:(100+i).toString(16).padStart(32,'0'),title:'검사 '+i,href:'https://app.notion.com/'+(100+i).toString(16).padStart(32,'0'),icon}));
+  for(const f of [...favorites,...extra])workspace=model.addFavorite(workspace,f.pageId);
+  tree.update({workspace,favorites:[...favorites,...extra],activePageId:extra[0].pageId});
+  const icons=[...root.querySelectorAll('.nfs-page-icon')];
+  check(icons.length>values.length,'picker, current page, and managed rows share the icon renderer');
+  check(icons.every(icon=>!icon.textContent.includes('아이콘')&&!icon.textContent.includes('/icons/')&&!icon.textContent.includes('Change page')),'no labels or image paths are rendered as glyphs');
+  check(!root.querySelector('.nfs-page-icon img'),'no remote image requests are added');
+  for(const [i,value]of values.entries()){
+   const node=root.querySelector('[data-page-id="'+extra[i].pageId+'"] .nfs-page-icon');
+   if(i<10)check(!!node?.querySelector('svg'),'invalid icon '+i+' uses the inline arrow');
+   else check(node?.textContent===value,'complex emoji '+i+' stays intact');
+  }
+  check(icons.every(icon=>getComputedStyle(icon).whiteSpace==='nowrap'&&icon.scrollHeight<=icon.clientHeight+1),'icon boxes never wrap or overflow vertically');
+  result.textContent='PASS '+checks.length+' icon checks\n'+checks.join('\n');document.title='PASS: Moa icons';document.body.dataset.smoke='pass';
+ }catch(error){result.textContent=checks.join('\n')+'\nFAIL: '+error.message;document.title='FAIL: Moa icons';document.body.dataset.smoke='fail';}
+})();
+</script>
+</html>

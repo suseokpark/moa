@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<title>Moa title cache regression</title>
+<style>body{font:14px system-ui;margin:16px}iframe{width:100%;height:800px;border:1px solid #ddd}pre{white-space:pre-wrap}</style>
+<pre id="result">RUNNING</pre><iframe title="즐겨찾기 제목 복원 검사" src="browser-live-demo.html"></iframe>
+<script>
+(async () => {
+  const frame=document.querySelector('iframe'), result=document.querySelector('#result'), report=[];
+  const check=(condition,message)=>{if(!condition)throw new Error(message);};
+  const wait=async predicate=>{for(let i=0;i<200;i++){if(predicate())return;await new Promise(resolve=>setTimeout(resolve,25));}throw new Error('Timed out waiting for fixture');};
+  const deep=(selector,root=frame.contentDocument)=>{const hit=root.querySelector(selector);if(hit)return hit;for(const element of root.querySelectorAll('*'))if(element.shadowRoot){const found=deep(selector,element.shadowRoot);if(found)return found;}return null;};
+  const pass=name=>{report.push(`PASS ${name}`);result.textContent=report.join('\n');};
+  const id='fedcba9876543210fedcba9876543210';
+  const favorite=()=>deep(`.nfs-favorite[data-page-id="${id}"]`);
+  const click=selector=>{const button=deep(selector);check(button,`Missing ${selector}`);button.click();};
+  try {
+    await wait(()=>frame.contentWindow.NotionFavoriteSections?.content?.started && deep('button[aria-label="Moa"]'));
+    const win=frame.contentWindow, doc=frame.contentDocument;
+    click('button[aria-label="Moa"]');
+    click('button[aria-label="Notion 즐겨찾기 추가"]');
+    click('input[aria-label="Decisions 선택"]');
+    click('button[aria-label="선택한 즐겨찾기 추가"]');
+    await wait(()=>favorite()?.querySelector('.nfs-favorite-title')?.textContent==='Decisions');
+    await win.NotionFavoriteSections.content.refresh();
+    const before=JSON.stringify(win.__nfsLiveDemo.workspace), revision=win.__nfsLiveDemo.revision;
+    check(favorite().querySelector('a'), 'Initial managed page link absent');
+    pass('Explicitly added Favorite starts with its real title and link');
+
+    const source=doc.querySelector('.favorites-section');
+    source.hidden=true;
+    await win.NotionFavoriteSections.content.refresh();
+    check(favorite().querySelector('.nfs-favorite-title').textContent==='Decisions','Title lost when source collapsed');
+    check(favorite().querySelector('a')?.href===`https://app.notion.com/${id}`,'Canonical link lost');
+    check(deep('button[aria-label="Notion 즐겨찾기 추가"]').disabled,'Cache authorized new imports');
+    check(JSON.stringify(win.__nfsLiveDemo.workspace)===before && win.__nfsLiveDemo.revision===revision,'Display refresh changed saved layout');
+    pass('Collapsed source retains title/icon/link without changing source eligibility or tree revision');
+
+    win.NotionFavoriteSections.content.cleanup();
+    win.NotionFavoriteSections.content=undefined;
+    const script=doc.createElement('script');
+    script.src='../src/content.js?v=0.1.9-cache-restart';
+    const loaded=new Promise((resolve,reject)=>{script.onload=resolve;script.onerror=reject;});doc.body.append(script);await loaded;
+    await win.NotionFavoriteSections.content.refresh();
+    click('button[aria-label="Moa"]');
+    check(favorite().querySelector('.nfs-favorite-title').textContent==='Decisions','Fresh controller failed to hydrate stored title');
+    check(favorite().querySelector('a')?.href===`https://app.notion.com/${id}`,'Fresh controller link absent');
+    pass('Fresh controller restores cached title with the original source still hidden');
+
+    source.hidden=false;
+    source.querySelector(`a[href*="${id}"] [data-testid="page-title"]`).textContent='Decisions — 최신 이름';
+    await win.NotionFavoriteSections.content.refresh();
+    check(favorite().querySelector('.nfs-favorite-title').textContent==='Decisions — 최신 이름','Live rename did not win');
+    source.hidden=true;
+    await win.NotionFavoriteSections.content.refresh();
+    check(favorite().querySelector('.nfs-favorite-title').textContent==='Decisions — 최신 이름','Renamed title was not retained');
+    check(JSON.stringify(win.__nfsLiveDemo.workspace)===before,'Rename changed grouping');
+    pass('Latest observed title updates cache without changing grouping');
+
+    let delivered=false;
+    favorite().querySelector('a').addEventListener('click',()=>{delivered=true;},{once:true});
+    favorite().querySelector('a').click();
+    await win.NotionFavoriteSections.content.refresh();
+    check(delivered && doc.documentElement.getAttribute('data-nfs-demo-active-page-id')===id,'Cached page link did not navigate');
+    check(favorite().querySelector('a[aria-current="page"]'),'Navigated Favorite not highlighted');
+    check(favorite().querySelector('.nfs-favorite-title').textContent==='Decisions — 최신 이름','Generic current-page fallback replaced cached title');
+    pass('Cached link opens and highlights its page even while native source is unavailable');
+    document.body.dataset.smoke='pass';document.title=`PASS: ${report.length} title cache regressions`;
+  } catch(error) {
+    result.textContent=report.join('\n')+'\nFAIL '+error.stack;
+    document.body.dataset.smoke='fail';document.title='FAIL: title cache regressions';
+  }
+})();
+</script>
+</html>

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Moa</title>
+    <link rel="stylesheet" href="popup.css" />
+    <script src="popup.js" defer></script>
+  </head>
+  <body>
+    <main class="panel">
+      <header class="header">
+        <div class="mark" aria-hidden="true"><img src="../icons/moa-mark.svg" width="34" height="34" alt="" /></div>
+        <div>
+          <h1>Moa <span class="korean-name">모아</span></h1>
+          <p class="version">버전 <span data-version>0.1.9</span></p>
+        </div>
+      </header>
+
+      <p class="status">자주 찾는 페이지를 한곳에 모아.</p>
+      <a class="open-notion" href="https://app.notion.com/" target="_blank" rel="noopener noreferrer">Notion 열기 <span aria-hidden="true">↗</span></a>
+
+      <section aria-labelledby="usage-title">
+        <h2 id="usage-title">사용 방법</h2>
+        <ol>
+          <li>Notion의 왼쪽 사이드바와 <strong>즐겨찾기</strong>를 펼칩니다.</li>
+          <li>수신함 옆 청록색 책갈피 아이콘이 있는 <strong>Moa</strong>를 누릅니다.</li>
+          <li><strong>+ 즐겨찾기</strong>에서 검색하고 항목을 체크한 뒤, 담을 그룹·섹션을 골라 추가합니다.</li>
+          <li>그룹과 섹션의 화살표로 접고 펼칩니다. 페이지의 메뉴에서 위치를 바꿀 수 있습니다.</li>
+          <li><strong>현재 열린 페이지</strong>와 하위 페이지를 확인하고, 제목을 눌러 이동합니다. 하위 트리는 Notion 사이드바에 로드된 항목만 표시합니다.</li>
+        </ol>
+      </section>
+
+      <section class="notice" aria-labelledby="limits-title">
+        <h2 id="limits-title">항목이 보이지 않나요?</h2>
+        <p>Moa를 닫고 Notion 즐겨찾기를 펼친 뒤 다시 열어 보세요. 현재 사이드바에 표시된 항목만 추가할 수 있습니다. <strong>목록 갱신</strong>은 이미 담은 항목을 확인하며, 새 항목은 직접 추가합니다.</p>
+        <p>이전 버전에서 제목 대신 ID가 보인다면 원본 즐겨찾기를 한 번 펼친 뒤 목록을 갱신하세요. 기존 그룹·섹션은 그대로 두고 제목을 복구합니다.</p>
+      </section>
+
+      <section class="privacy" aria-labelledby="privacy-title">
+        <h2 id="privacy-title">내 브라우저에 저장</h2>
+        <ul>
+          <li>별도 로그인 없이 사용하며, 정리한 트리는 워크스페이스별로 이 브라우저에 저장됩니다.</li>
+          <li>담아 둔 즐겨찾기의 제목·이모지 아이콘도 보관해 원본 목록이 접혀 있어도 이름을 보여 줍니다.</li>
+          <li>다른 기기로 자동 동기화되지 않습니다. 확장을 제거하면 로컬 데이터가 지워질 수 있습니다.</li>
+          <li>Moa에서 제거하거나 초기화해도 Notion의 원본 즐겨찾기는 유지됩니다.</li>
+          <li>페이지 본문과 로그인 정보는 읽지 않으며, 외부로 데이터를 전송하지 않습니다.</li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>
