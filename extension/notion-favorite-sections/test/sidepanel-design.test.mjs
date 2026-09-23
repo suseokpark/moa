@@ -45,6 +45,15 @@ function rule(selector) {
 }
 
 for (const [name, tokens] of Object.entries(themes)) {
+  test(`${name} no-script fallback text stays readable on the default 8% group tint`, () => {
+    const rgb = tokens.bg.slice(1).match(/../gu).map(value => parseInt(value, 16));
+    for (const [pole, round] of [[0, Math.floor], [255, Math.ceil]]) {
+      const background = `#${rgb.map(value => round(value + (pole - value) * .08).toString(16).padStart(2, "0")).join("")}`;
+      for (const foreground of ["text", "muted", "accent", "danger"]) {
+        assert.ok(contrast(tokens[foreground], background) >= 4.5, `${name} ${foreground} on ${background}`);
+      }
+    }
+  });
   test(`${name} opaque body, secondary, accent and error text tokens meet 4.5:1 on supported surfaces`, () => {
     for (const foreground of ["text", "muted", "accent", "danger"]) {
       for (const surface of surfaces) atLeast(tokens, foreground, surface, 4.5, name);
@@ -89,6 +98,20 @@ test("icons retain prefixed masks for the supported Chrome 116 through 119 relea
   const icon = rule(".ui-icon");
   assert.equal(icon["-webkit-mask"], "var(--icon) center / contain no-repeat");
   assert.equal(icon.mask, icon["-webkit-mask"]);
+});
+
+test("group tint covers the entire opaque group without clipping menus or stacking translucent ancestors", () => {
+  const group = rule(".group");
+  const mix = "color-mix(in srgb, var(--group-color, var(--muted)) var(--group-tint-strength, 8%), var(--bg))";
+  assert.equal(group.background, mix);
+  assert.equal(rule(".group-color-preview").background, mix, "draft preview must match the tree surface");
+  assert.equal(group["border-radius"], "9px");
+  assert.equal(group.opacity, undefined, "never fade group text or menus");
+  assert.equal(group.overflow, undefined, "menus and focus rings must remain unclipped");
+  assert.equal(rule(".link-row.current").background, "var(--tint)");
+  assert.equal(rule(".menu-items").background, "var(--surface)");
+  assert.equal(rule(".group[data-deep=true]")["padding-left"], "2px");
+  assert.equal(rule(".group[data-deep=true]")["padding-right"], "2px");
 });
 
 test("source guards preserve readable link text, control targets, focus and motion alternatives", () => {

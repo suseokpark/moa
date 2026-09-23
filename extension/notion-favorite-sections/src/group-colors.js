@@ -1,4 +1,4 @@
-// Group colors decorate the tree; they never replace its readable text colors.
+// Group colors decorate dots, connectors and a soft background; text uses contrast-safe theme tokens.
 export const GROUP_COLOR_PRESETS = Object.freeze([
   { name: "초록", color: "#34856a" }, { name: "파랑", color: "#4b80d6" },
   { name: "보라", color: "#9470ce" }, { name: "분홍", color: "#ce668e" },
@@ -36,7 +36,7 @@ export function createGroupColorEditor({ documentRef = document, group }) {
   hex.setAttribute("aria-describedby", "group-color-help group-color-error");
   const error = make("p", "error"); error.id = "group-color-error";
   error.setAttribute("aria-live", "polite");
-  const help = make("p", "form-note", "그룹 이름 옆 표식과 연결선에 적용됩니다. 하위 그룹은 따로 지정하며, 비워두면 기본 색상을 사용합니다.");
+  const help = make("p", "form-note", "그룹 표식·연결선과 연한 배경에 적용됩니다. 하위 그룹은 따로 지정하며, 비워두면 기본 색상을 사용합니다.");
   help.id = "group-color-help";
   const paint = () => {
     preview.style.setProperty("--group-color", draft || "var(--muted)");

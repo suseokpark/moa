@@ -49,9 +49,9 @@ function channels(hex) {
   return [1, 3, 5].map((offset) => Number.parseInt(hex.slice(offset, offset + 2), 16));
 }
 
-function mix(from, toward, amount) {
+function mix(from, toward, amount, round = Math.round) {
   const target = channels(toward);
-  return `#${channels(from).map((channel, index) => Math.round(channel + (target[index] - channel) * amount)
+  return `#${channels(from).map((channel, index) => round(channel + (target[index] - channel) * amount)
     .toString(16).padStart(2, "0")).join("")}`;
 }
 
@@ -80,6 +80,23 @@ function correctContrast(seed, backgrounds, minimum, toward) {
   throw new RangeError("테마의 색상 대비를 구성할 수 없습니다.");
 }
 
+function groupTintRange(background, foreground) {
+  // A blend with ANY group color lies channel-by-channel between these black
+  // and white blends. Round outwards so the bounds also cover CSS color-mix's
+  // fractional sRGB channels. Very middle-toned backgrounds need a gentler tint.
+  for (let step = 80; step >= 0; step -= 1) {
+    const amount = step / 1000;
+    const bounds = [mix(background, "#000000", amount, Math.floor),
+      mix(background, "#ffffff", amount, Math.ceil)];
+    if (bounds.every((bound) => contrast(foreground, bound) >= 4.55)) {
+      return { strength: `${step / 10}%`, bounds };
+    }
+  }
+  // The stronger of black/white on any solid background exceeds 4.58:1, so
+  // zero tint must pass. Keep a guard if the foreground-selection logic changes.
+  throw new RangeError("그룹 배경의 색상 대비를 구성할 수 없습니다.");
+}
+
 export function resolveTheme(raw = DEFAULT_THEME, systemDark = false) {
   const theme = validateTheme(raw);
   const mode = theme.mode === "system" ? (systemDark ? "dark" : "light") : theme.mode;
@@ -94,7 +111,8 @@ export function resolveTheme(raw = DEFAULT_THEME, systemDark = false) {
   const subtle = safeSurface(mix(bg, foreground, 0.035));
   const hover = safeSurface(mix(bg, foreground, 0.06));
   const tint = safeSurface(mix(bg, theme.accent, 0.08));
-  const surfaces = [bg, surface, subtle, hover, tint];
+  const groupTint = groupTintRange(bg, foreground);
+  const surfaces = [bg, surface, subtle, hover, tint, ...groupTint.bounds];
   const accent = correctContrast(theme.accent, surfaces, 4.5, foreground);
   const accentHover = mix(accent, foreground, 0.15);
   const tokens = {
@@ -110,6 +128,7 @@ export function resolveTheme(raw = DEFAULT_THEME, systemDark = false) {
     "on-accent": backgroundPole,
     tint,
     hover,
+    "group-tint-strength": groupTint.strength,
     danger: correctContrast(foreground === "#000000" ? "#ac352e" : "#ffb4a9", surfaces, 4.5, foreground),
     shadow: foreground === "#000000" ? "0 12px 36px #172c201a, 0 2px 8px #172c200d" : "0 12px 36px #0005, 0 2px 8px #0003",
   };

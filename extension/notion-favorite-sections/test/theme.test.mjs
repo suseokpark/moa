@@ -5,9 +5,17 @@ import { DEFAULT_THEME, THEME_PRESETS, validateTheme, resolveTheme } from "../sr
 // Independent WCAG calculation so regressions in the engine are not masked by
 // testing contrast with the same implementation that generated the palette.
 function relativeLuminance(hex) {
-  const rgb = hex.slice(1).match(/../g).map((value) => parseInt(value, 16) / 255)
+  const channels = Array.isArray(hex) ? hex : hex.slice(1).match(/../g).map((value) => parseInt(value, 16));
+  const rgb = channels.map((value) => value / 255)
     .map((value) => value > 0.04045 ? ((value + 0.055) / 1.055) ** 2.4 : value / 12.92);
   return rgb.reduce((sum, value, index) => sum + value * [0.2126, 0.7152, 0.0722][index], 0);
+}
+
+function cssTint(background, color, strength) {
+  const base = background.slice(1).match(/../g).map(value => parseInt(value, 16));
+  const tint = color.slice(1).match(/../g).map(value => parseInt(value, 16));
+  // CSS retains fractional channels. Do not round these like the theme engine.
+  return base.map((value, index) => value + (tint[index] - value) * strength / 100);
 }
 
 function assertContrast(first, second, minimum, description) {
@@ -19,8 +27,9 @@ function assertContrast(first, second, minimum, description) {
 function assertPalette(theme, systemDark = false) {
   const { tokens } = resolveTheme(theme, systemDark);
   for (const [name, value] of Object.entries(tokens)) {
-    if (name !== "shadow") assert.match(value, /^#[0-9a-f]{6}$/, name);
+    if (!["shadow", "group-tint-strength"].includes(name)) assert.match(value, /^#[0-9a-f]{6}$/, name);
   }
+  assert.match(tokens["group-tint-strength"], /^(?:[0-7](?:\.[0-9])?|8)%$/);
   for (const background of ["bg", "surface", "subtle", "hover", "tint"]) {
     for (const foreground of ["text", "muted", "accent", "accent-hover", "danger"]) {
       assertContrast(tokens[foreground], tokens[background], 4.5, `${foreground}/${background}`);
@@ -31,6 +40,13 @@ function assertPalette(theme, systemDark = false) {
   }
   for (const background of ["bg", "surface"]) {
     assertContrast(tokens["input-line"], tokens[background], 3, `input-line/${background}`);
+  }
+  const strength = parseFloat(tokens["group-tint-strength"]);
+  for (const color of ["#000000", "#ffffff", "#ff0000", "#00ff00", "#0000ff", "#ffff00", "#00ffff", "#ff00ff", tokens.muted, tokens.accent]) {
+    const background = cssTint(tokens.bg, color, strength);
+    for (const foreground of ["text", "muted", "accent", "accent-hover", "danger"]) {
+      assertContrast(tokens[foreground], background, 4.5, `${foreground}/group tint ${color} at ${strength}%`);
+    }
   }
 }
 
@@ -145,4 +161,19 @@ test("resolved token objects are independent and deterministic", () => {
   assert.notEqual(first.tokens, second.tokens);
   first.tokens.accent = "#000000";
   assert.equal(resolveTheme().tokens.accent, DEFAULT_THEME.accent);
+});
+
+test("group tints keep full strength for presets and adapt at middle-luminance extremes", () => {
+  for (const { id, name, ...colors } of THEME_PRESETS) {
+    for (const systemDark of [false, true]) {
+      assert.equal(resolveTheme({ ...DEFAULT_THEME, ...colors }, systemDark).tokens["group-tint-strength"], "8%");
+    }
+  }
+  for (const background of ["#757575", "#767676", "#777777"]) {
+    const theme = { ...DEFAULT_THEME, lightBackground: background };
+    const snapshot = structuredClone(theme);
+    assert.ok(parseFloat(resolveTheme(theme).tokens["group-tint-strength"]) < 8);
+    assertPalette(theme);
+    assert.deepEqual(theme, snapshot, "contrast adjustment must not rewrite user colors");
+  }
 });

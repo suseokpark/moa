@@ -11,6 +11,7 @@
   --accent-hover: #105340;
   --on-accent: #ffffff;
   --tint: #edf6f1;
+  --group-tint-strength: 8%;
   --hover: #f0f3f1;
   --danger: #ac352e;
   --shadow: 0 12px 36px #172c201a, 0 2px 8px #172c200d;
@@ -88,7 +89,12 @@ a:hover { text-decoration: underline; }
 .status { font-size: 12px; overflow-wrap: anywhere; color: var(--accent); margin: 9px 0; }
 .status:empty { display: none; }
 .status[data-error=true] { color: var(--danger); }
-.group { margin: 6px 0 18px; }
+.group {
+  margin: 6px 0 18px; padding: 5px 6px 6px; border-radius: 9px;
+  /* Mix with the opaque page base, never a parent's tint: nested groups stay independent. */
+  background: var(--bg);
+  background: color-mix(in srgb, var(--group-color, var(--muted)) var(--group-tint-strength, 8%), var(--bg));
+}
 .group-heading { display: flex; align-items: center; gap: 3px; }
 .fold { border: 0; background: transparent; padding: 6px 3px; display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; text-align: left; justify-content: flex-start; min-height: 34px; }
 .fold .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -99,12 +105,14 @@ a:hover { text-decoration: underline; }
 .group-children { margin: 2px 0 0 9px; padding-left: 10px; border-left: 1px solid var(--group-line, var(--line)); }
 .group-color-dot { width: 9px; height: 9px; flex-shrink: 0; border-radius: 50%; background: var(--group-color, var(--muted)); border: 1px solid var(--input-line); }
 .group-color-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
-.group-color-preview { display: flex; align-items: center; gap: 8px; padding: 12px; border-left: 3px solid var(--group-color, var(--muted)); border-radius: 4px; background: var(--subtle); }
+.group-color-preview { display: flex; align-items: center; gap: 8px; padding: 12px; border-left: 3px solid var(--group-color, var(--muted)); border-radius: 4px; background: var(--bg); background: color-mix(in srgb, var(--group-color, var(--muted)) var(--group-tint-strength, 8%), var(--bg)); }
 .group-color-name { overflow-wrap: anywhere; min-width: 0; font-size: 14px; }
 .group-color-editor > .quiet-button[aria-pressed="true"] { background: var(--tint); }
 .theme-icon { width: 19px; height: 19px; flex-shrink: 0; }
 #theme-open { flex-shrink: 0; white-space: nowrap; }
 .group-children > .group { margin: 4px 0 6px; }
+/* Stop indentation from consuming the link column in a deeply nested tree. */
+.group[data-deep=true] { padding-left: 2px; padding-right: 2px; }
 .group[data-deep=true] > .group-children { margin-left: 0; padding-left: 2px; }
 .link-row { display: flex; align-items: center; border-radius: 6px; margin: 2px 0; position: relative; min-width: 0; }
 .link-row:hover { background: var(--hover); }
