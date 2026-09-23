@@ -69,6 +69,7 @@ a:hover { text-decoration: underline; }
 .current-actions { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; }
 .tab-selection-controls { margin: 12px 0; }
 .tab-selection-controls .form-note { margin-bottom: 4px; }
+.candidate-selection-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 4px 12px; }
 .tab-candidates input { width: 16px; height: 16px; flex: 0 0 16px; }
 .tab-candidates .check-row:focus-within { outline: 2px solid var(--accent); outline-offset: -2px; }
 .saved-location { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; margin: 8px 0 3px; }

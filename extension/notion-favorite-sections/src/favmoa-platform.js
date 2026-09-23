@@ -176,7 +176,11 @@ export function createPlatform({ chrome: chromeApi = globalThis.chrome, location
       finally { pendingOpens.delete(identified.url); }
     },
     async getBookmarkCandidates() {
-      if (!extension) return { ok: true, demo: true, candidates: [{ title: "예시 참고 문서 (데모)", url: "https://example.org/reference", folderPath: "데모 북마크" }] };
+      if (!extension) return { ok: true, demo: true, candidates: [
+        { title: "예시 참고 문서 (데모)", url: "https://example.org/reference", folderPath: "데모 북마크" },
+        { title: "예시 사용 안내 (데모)", url: "https://example.net/guide", folderPath: "데모 / 안내" },
+        { title: DEMO_PAGE.title, url: DEMO_PAGE.url, folderPath: "데모 / 프로젝트" }
+      ] };
       try {
         // Called directly from the import button so permission is not requested
         // during startup. The extension never writes browser bookmarks.
