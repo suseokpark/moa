@@ -92,6 +92,30 @@ export function createPlatform({ chrome: chromeApi = globalThis.chrome, location
     catch { return []; }
   }
 
+  async function getOpenTabCandidates() {
+    if (!extension) return {
+      ok: true, demo: true, excludedCount: 0,
+      tabs: [clone(DEMO_PAGE),
+        { id: 2, windowId: 1, title: "예시 참고 문서 (데모)", url: "https://example.org/reference" },
+        { id: 3, windowId: 2, title: "예시 사용 안내 (데모)", url: "https://example.net/guide" }]
+    };
+    try {
+      const tabs = [];
+      let excludedCount = 0;
+      for (const tab of await chromeApi.tabs.query({})) {
+        const safe = tab && !tab.incognito ? safeTab(tab) : null;
+        if (!safe) { excludedCount += 1; continue; }
+        tabs.push({
+          id: Number.isSafeInteger(safe.id) ? safe.id : undefined,
+          windowId: Number.isSafeInteger(safe.windowId) ? safe.windowId : undefined,
+          title: typeof safe.title === "string" ? safe.title : safe.url,
+          url: safe.url
+        });
+      }
+      return { ok: true, tabs, excludedCount };
+    } catch { return { ok: false, code: "TABS_UNAVAILABLE", error: "열린 탭을 읽지 못했습니다. 잠시 후 다시 시도해 주세요." }; }
+  }
+
   async function openExtensionLink(identified, newTab) {
     try {
       if (!newTab) {
@@ -131,6 +155,7 @@ export function createPlatform({ chrome: chromeApi = globalThis.chrome, location
     undo: (expectedRevision) => request({ type: "FAVMOA_UNDO", expectedRevision }),
     getCurrentPage,
     getOpenTabs,
+    getOpenTabCandidates,
     async openLink(url, { newTab = false } = {}) {
       let identified;
       try { identified = identifyUrl(url); }

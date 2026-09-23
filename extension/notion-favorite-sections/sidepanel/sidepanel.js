@@ -6,6 +6,7 @@ import { createGroupColorEditor } from "../src/group-colors.js";
 import { createTreeDrag } from "../src/tree-drag.js";
 import { createInteractionGuard } from "../src/interaction-guard.js";
 import { createLinkSelection } from "../src/link-selection.js";
+import { prepareOpenTabCandidates } from "../src/open-tab-candidates.js";
 
 const $ = (id) => document.getElementById(id);
 const platform = createPlatform();
@@ -684,6 +685,106 @@ function restoreDialog(catalog, source) {
     return true;
   });
 }
+function chooseOpenTabs() {
+  const revision = state.revision;
+  const targetLibrary = libraryId;
+  const savedLinks = linksOf(library());
+  const selection = new Set();
+  let candidates = [], shown = [], loaded = false, limit = 200;
+  let filter, list, count, summary, selectVisible, more, retry, to;
+  const updateSelection = () => {
+    const visibleCount = shown.filter(item => selection.has(item.key)).length;
+    const hidden = selection.size - visibleCount;
+    count.textContent = `${selection.size}개 선택${hidden ? ` · 화면 밖 ${hidden}개 포함` : ""}`;
+    selectVisible.checked = shown.length > 0 && visibleCount === shown.length;
+    selectVisible.indeterminate = visibleCount > 0 && visibleCount < shown.length;
+    selectVisible.disabled = !loaded || !shown.length;
+    $("dialog-submit").disabled = !loaded || !selection.size;
+    $("dialog-submit").textContent = selection.size ? `선택한 ${selection.size}개 담기` : "선택한 링크 담기";
+  };
+  const renderCandidates = () => {
+    const query = filter.value.trim().toLocaleLowerCase();
+    const matched = candidates.filter(item => `${item.title} ${item.url}`.toLocaleLowerCase().includes(query));
+    shown = matched.slice(0, limit);
+    list.replaceChildren();
+    for (const item of shown) {
+      const row = node("label", undefined, "check-row");
+      const check = node("input"); check.type = "checkbox"; check.checked = selection.has(item.key);
+      check.setAttribute("aria-label", `${item.title} 선택`);
+      check.addEventListener("change", () => {
+        if (check.checked && selection.size >= 1000) {
+          check.checked = false; $("dialog-error").textContent = "한 번에 최대 1,000개까지 담을 수 있어요. 선택을 줄여 주세요.";
+        } else {
+          if (check.checked) selection.add(item.key); else selection.delete(item.key);
+          $("dialog-error").textContent = "";
+        }
+        updateSelection();
+      });
+      const text = node("span", item.title); text.append(node("small", item.url));
+      row.append(check, text); list.append(row);
+    }
+    if (!shown.length) list.append(node("p", candidates.length ? "검색 결과가 없습니다." : "새로 담을 탭이 없습니다. 이미 저장한 페이지와 지원하지 않는 주소는 제외했어요.", "form-note"));
+    more.hidden = shown.length >= matched.length;
+    more.textContent = `더 보기 (${shown.length}/${matched.length})`;
+    updateSelection();
+  };
+  const submit = async () => {
+    if (!loaded || !selection.size) return false;
+    const links = candidates.filter(item => selection.has(item.key)).map(({ title, url }) => ({ title, url }));
+    const targetGroupId = to.group.value;
+    await dispatch({ type: "addLinks", libraryId: targetLibrary, groupId: targetGroupId, links, revealTarget: true }, revision, `${links.length}개 링크를 담았습니다. 한 번의 되돌리기로 취소할 수 있어요.`);
+    linkSelection.stop(); $("search").value = "";
+    render();
+    runAfterTreeRender(() => {
+      const target = [...document.querySelectorAll("[data-group-id]")].find(group => group.dataset.groupId === targetGroupId)?.querySelector(".fold");
+      if (target) {
+        if ($("dialog").open) { dialogOrigin = target; dialogReturnKeys = []; }
+        else target.focus();
+        target.scrollIntoView({ block: "nearest" });
+      }
+    });
+    return true;
+  };
+  const loadCandidates = async () => {
+    retry.hidden = true; summary.textContent = "열린 탭을 확인하고 있어요…";
+    let result;
+    try { result = await platform.getOpenTabCandidates(); }
+    catch { result = { ok: false, error: "열린 탭을 읽지 못했습니다. 다시 시도해 주세요." }; }
+    // Cancelled/older requests must never overwrite a newly opened dialog.
+    if (!$("dialog").open || dialogSubmit !== submit) return;
+    if (!result.ok) {
+      summary.textContent = result.error; retry.hidden = false; return;
+    }
+    const prepared = prepareOpenTabCandidates(result.tabs, savedLinks);
+    candidates = prepared.candidates; loaded = true; filter.disabled = false; to.group.disabled = !candidates.length;
+    summary.textContent = `${result.demo ? "예시 탭 · " : "모든 Chrome 창 · "}새 링크 ${candidates.length}개 · 이미 저장 ${prepared.savedCount}개 · 중복 탭 ${prepared.duplicateCount}개 · 지원하지 않거나 비공개인 탭 ${(result.excludedCount || 0) + prepared.unsupportedCount}개 제외`;
+    renderCandidates();
+  };
+  showDialog("열린 탭 담기", "선택한 링크 담기", body => {
+    body.append(node("p", "현재 보관함에 선택한 페이지의 이름·주소만 복사합니다. 탭은 닫지 않습니다. 인증용·일회성 주소는 선택하지 마세요.", "form-note"));
+    summary = node("p", "", "form-note"); summary.setAttribute("role", "status"); body.append(summary);
+    filter = field(body, "탭 검색", "", { type: "search", required: false }); filter.disabled = true;
+    filter.addEventListener("input", () => { limit = 200; renderCandidates(); });
+    const controls = node("div", undefined, "tab-selection-controls");
+    count = node("p", "0개 선택", "form-note"); count.setAttribute("role", "status"); count.setAttribute("aria-atomic", "true");
+    const all = node("label", undefined, "select-visible-label"); selectVisible = node("input"); selectVisible.type = "checkbox"; selectVisible.disabled = true;
+    selectVisible.addEventListener("change", () => {
+      const adding = shown.some(item => !selection.has(item.key));
+      const size = new Set([...selection, ...shown.map(item => item.key)]).size;
+      if (adding && size > 1000) { $("dialog-error").textContent = "한 번에 최대 1,000개까지 담을 수 있어요. 검색으로 범위를 줄여 주세요."; updateSelection(); return; }
+      for (const item of shown) { if (adding) selection.add(item.key); else selection.delete(item.key); }
+      $("dialog-error").textContent = ""; renderCandidates();
+    });
+    all.append(selectVisible, node("span", "보이는 탭 모두 선택")); controls.append(count, all); body.append(controls);
+    list = node("div", undefined, "check-list tab-candidates"); body.append(list);
+    more = button("더 보기", () => { limit += 200; renderCandidates(); }, "text-button"); more.hidden = true; body.append(more);
+    retry = button("다시 불러오기", loadCandidates); retry.hidden = true; body.append(retry);
+    to = destinationFields(body); to.group.disabled = true;
+    body.append(node("p", "검색으로 숨겨진 선택도 함께 담습니다. 한 번에 최대 1,000개. 목록은 이 창을 연 시점 기준이며, 새 탭을 포함하려면 닫았다 다시 열어 주세요.", "form-note"));
+    $("dialog-submit").disabled = true;
+  }, submit);
+  return loadCandidates();
+}
 async function chooseBookmarks() {
   const result = await requireResult(platform.getBookmarkCandidates());
   const existing = new Set(linksOf(library()).map(link => safeKey(link.url)));
@@ -746,6 +847,7 @@ $("select-mode").addEventListener("click", toggleSelectionMode);
 $("select-visible").addEventListener("change", () => { linkSelection.toggleVisible(visibleSelectionIds()); render(); });
 $("move-selected").addEventListener("click", bulkMoveDialog);
 $("save-current").addEventListener("click", revealCurrentPage);
+$("save-tabs").addEventListener("click", chooseOpenTabs);
 $("clear-search").addEventListener("click", clearSearch);
 $("backup-shortcut").addEventListener("click", openBackupSettings);
 $("library-picker").addEventListener("change", event => { libraryId = event.target.value; suppressedFolds.clear(); render(); });
@@ -803,4 +905,4 @@ platform.subscribe(event => {
   }
 });
 try { adopt(await requireResult(platform.load())); await refreshTabs(); }
-catch (error) { announce(error.message, true); for (const id of ["add-link", "add-group", "add-library", "save-current", "import-legacy", "import-backup", "reset-library"]) $(id).disabled = true; }
+catch (error) { announce(error.message, true); for (const id of ["add-link", "add-group", "add-library", "save-current", "save-tabs", "import-legacy", "import-backup", "reset-library"]) $(id).disabled = true; }

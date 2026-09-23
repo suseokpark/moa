@@ -46,6 +46,7 @@ const EXPECTED_RUNTIME_FILES = [
   "src/link-selection.js",
   "src/moa-brand.js",
   "src/notion-url.js",
+  "src/open-tab-candidates.js",
   "src/storage-contract.js",
   "src/theme-settings.js",
   "src/theme-store.js",
