@@ -161,6 +161,3 @@ export function fixture(tabs = defaults, { bookmarks = false } = {}) {
     submit: () => $("dialog-form").emit("submit")
   };
 }
-
-
-
