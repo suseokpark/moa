@@ -278,10 +278,10 @@ test("classic content script publishes the panel shell API", () => {
   assert.equal(Object.isFrozen(globalThis.NotionFavoriteSections.panel), true);
 });
 
-test("Moa menu button presents the decorative approved bookmark before its text label", () => {
+test("FAVMOA menu button presents the decorative approved bookmark before its text label", () => {
   const { viewHost, host } = createFixture();
   const shell = createPanelShell({ host, viewHost });
-  const trigger = shell.shadowRoot.querySelector('[aria-label="Moa"]');
+  const trigger = shell.shadowRoot.querySelector('[aria-label="FAVMOA"]');
   const [icon, label] = trigger.children;
 
   assert.equal(icon.tagName, "SVG");
@@ -298,7 +298,7 @@ test("Moa menu button presents the decorative approved bookmark before its text 
   assert.equal(icon.querySelector("path").getAttribute("fill"), "var(--moa-ink, #164C45)");
   assert.equal(label.tagName, "SPAN");
   assert.equal(label.className, "ntree-trigger-label");
-  assert.equal(label.textContent, "Moa");
+  assert.equal(label.textContent, "FAVMOA");
 
   const style = shell.shadowRoot.children.find(
     (child) => child.tagName === "STYLE"
@@ -329,9 +329,9 @@ test("a crowded navigation keeps an accessible icon trigger and restores its lab
   tablist.rect.width = 220;
   nativeTab.rect.width = 180;
   const shell = createPanelShell({ host, viewHost });
-  const trigger = shell.shadowRoot.querySelector('[aria-label="Moa"]');
+  const trigger = shell.shadowRoot.querySelector('[aria-label="FAVMOA"]');
   assert.equal(trigger.hasAttribute("data-compact"), true);
-  assert.equal(trigger.getAttribute("title"), "Moa · 즐겨찾기 정리");
+  assert.equal(trigger.getAttribute("title"), "FAVMOA · 즐겨찾기 정리");
   assert.equal(nativeTab.getAttribute("aria-selected"), "true");
   tablist.rect.width = 330;
   documentRef.defaultView.dispatch("resize");
@@ -350,7 +350,7 @@ test("compressed native tabs do not make a four-tab narrow bar appear roomy", ()
     tablist.append(native);
   }
   const shell = createPanelShell({ host, viewHost });
-  assert.equal(shell.shadowRoot.querySelector('[aria-label="Moa"]').hasAttribute("data-compact"), true);
+  assert.equal(shell.shadowRoot.querySelector('[aria-label="FAVMOA"]').hasAttribute("data-compact"), true);
   shell.destroy();
 });
 
@@ -406,13 +406,13 @@ test("panel shell exposes an opaque internal surface as a named region", () => {
       changes.push(open);
     }
   });
-  const trigger = shell.shadowRoot.querySelector('[aria-label="Moa"]');
+  const trigger = shell.shadowRoot.querySelector('[aria-label="FAVMOA"]');
   const panel = shell.panelShadowRoot.querySelector('[role="region"]');
   const title = shell.panelShadowRoot.querySelector(
     `[id="${panel.getAttribute("aria-labelledby")}"]`
   );
   const closeButton = shell.panelShadowRoot.querySelector(
-    '[aria-label="Moa 패널 닫기"]'
+    '[aria-label="FAVMOA 패널 닫기"]'
   );
 
   assert.equal(host.style.display, "contents");
@@ -426,7 +426,7 @@ test("panel shell exposes an opaque internal surface as a named region", () => {
   assert.equal(trigger.getAttribute("aria-selected"), null);
   assert.equal(trigger.getAttribute("aria-controls"), null);
   assert.equal(panel.getAttribute("aria-labelledby"), title.getAttribute("id"));
-  assert.equal(title.textContent, "Moa");
+  assert.equal(title.textContent, "FAVMOA");
   assert.equal(panel.hidden, true);
   assert.equal(shell.contentHost.parentElement.parentElement, panel);
   assert.doesNotThrow(() => shell.contentHost.attachShadow({ mode: "open" }));
@@ -497,7 +497,7 @@ test("Escape and outside pointer close without providing another opener", () => 
   shell.destroy();
 });
 
-test("Escape already consumed by a picker or inline form leaves Moa open", () => {
+test("Escape already consumed by a picker or inline form leaves FAVMOA open", () => {
   const { documentRef, viewHost, host } = createFixture();
   const shell = createPanelShell({ host, viewHost });
   const panel = shell.panelShadowRoot.querySelector('[role="region"]');
@@ -516,7 +516,7 @@ test("Escape already consumed by a picker or inline form leaves Moa open", () =>
   shell.destroy();
 });
 
-test("Escape outside Moa does not intercept the rest of Notion", () => {
+test("Escape outside FAVMOA does not intercept the rest of Notion", () => {
   const { documentRef, viewHost, host } = createFixture();
   const shell = createPanelShell({ host, viewHost });
   const panel = shell.panelShadowRoot.querySelector('[role="region"]');
@@ -534,7 +534,7 @@ test("Escape outside Moa does not intercept the rest of Notion", () => {
   shell.destroy();
 });
 
-test("Escape closes the focused details menu before the Moa panel", () => {
+test("Escape closes the focused details menu before the FAVMOA panel", () => {
   const { documentRef, viewHost, host } = createFixture();
   const shell = createPanelShell({ host, viewHost });
   const panel = shell.panelShadowRoot.querySelector('[role="region"]');
@@ -594,7 +594,7 @@ test("Tab remains native within a nonmodal region and destroy removes listeners"
   assert.equal(nativeTab.getAttribute("aria-selected"), "true");
 });
 
-test("keyboard focus leaving Moa closes the surface without stealing focus", () => {
+test("keyboard focus leaving FAVMOA closes the surface without stealing focus", () => {
   const { documentRef, nativeTab, viewHost, host } = createFixture();
   const shell = createPanelShell({ host, viewHost });
   const panel = shell.panelShadowRoot.querySelector('[role="region"]');
@@ -611,7 +611,7 @@ test("keyboard focus leaving Moa closes the surface without stealing focus", () 
   shell.destroy();
 });
 
-test("pointer navigation outside Moa does not restore focus to its trigger", () => {
+test("pointer navigation outside FAVMOA does not restore focus to its trigger", () => {
   const { documentRef, viewHost, host } = createFixture();
   const shell = createPanelShell({ host, viewHost });
   const outside = documentRef.createElement("button");

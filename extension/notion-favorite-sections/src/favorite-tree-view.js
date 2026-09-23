@@ -3,6 +3,7 @@
 
   const namespace = globalScope.NotionFavoriteSections =
     globalScope.NotionFavoriteSections || {};
+  const urls = namespace.urls;
   let viewSequence = 0;
 
   const STYLE_TEXT = `
@@ -811,15 +812,7 @@
   }
 
   function safeFavoriteHref(value) {
-    try {
-      if (typeof value !== "string" || !value.trim()) return null;
-      const url = new URL(String(value || ""), "https://app.notion.com/");
-      const allowedHost =
-        url.hostname === "app.notion.com" || url.hostname === "www.notion.so";
-      return allowedHost && url.protocol === "https:" && !url.username && !url.password ? url.href : null;
-    } catch (_error) {
-      return null;
-    }
+    return urls.safePageUrl(value, { allowLegacyHost: true });
   }
 
   function favoriteIconText(value) {
@@ -866,12 +859,7 @@
   }
 
   function safeNavigationHref(value, pageId) {
-    const id = String(pageId || "").replace(/-/g, "").toLowerCase();
-    if (!/^[a-f0-9]{32}$/.test(id)) return null;
-    const href = safeFavoriteHref(value);
-    if (!href) return null;
-    const pathId = new URL(href).pathname.replace(/\/$/, "").split("/").at(-1)?.match(/(?:^|-)([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-f0-9]{32})$/i)?.[1];
-    return pathId?.replace(/-/g, "").toLowerCase() === id ? href : null;
+    return urls.safePageUrl(value, { pageId, allowLegacyHost: true });
   }
 
   // Navigation is a bounded, read-only projection of the currently loaded DOM.
@@ -1413,7 +1401,7 @@
           attributes: {
             "data-selected": String(pickerSelectedIds.has(currentPageId)),
             title: managedIds.has(currentPageId)
-              ? "현재 페이지는 이미 Moa에 있습니다."
+              ? "현재 페이지는 이미 FAVMOA에 있습니다."
               : "현재 페이지 선택"
           }
         });
@@ -1692,7 +1680,7 @@
       const preview = currentImportPreview || {};
       const zone = element(documentRef, "section", {
         className: "nfs-reset-zone",
-        attributes: { "aria-label": "Moa 관리" }
+        attributes: { "aria-label": "FAVMOA 관리" }
       });
       const copy = element(documentRef, "div", {
         className: "nfs-reset-zone-copy"
@@ -1700,7 +1688,7 @@
       copy.append(
         element(documentRef, "span", {
           className: "nfs-reset-zone-title",
-          text: "Moa 관리"
+          text: "FAVMOA 관리"
         }),
         documentRef.createTextNode(
           "이 브라우저에 저장된 내 정리 목록"
@@ -1712,14 +1700,14 @@
         text: "초기화",
         attributes: {
           type: "button",
-          title: "Moa의 그룹·섹션·즐겨찾기를 모두 초기화",
+          title: "FAVMOA의 그룹·섹션·즐겨찾기를 모두 초기화",
           "aria-label": "즐겨찾기 트리 초기화"
         }
       });
       resetButton.disabled =
         preview.canReset === false || preview.busy === true;
       resetButton.addEventListener("click", () => {
-        requestConfirmation("Moa를 초기화할까요?", "내가 만든 그룹, 섹션과 추가한 즐겨찾기가 모두 지워집니다. Notion의 원본 즐겨찾기는 그대로입니다.", "onResetTree", [], "초기화");
+        requestConfirmation("FAVMOA를 초기화할까요?", "내가 만든 그룹, 섹션과 추가한 즐겨찾기가 모두 지워집니다. Notion의 원본 즐겨찾기는 그대로입니다.", "onResetTree", [], "초기화");
       });
 
       zone.append(copy, resetButton);
@@ -2056,9 +2044,9 @@
       panel.append(
         divider(),
         actionButton(
-          "Moa에서 제거",
+          "FAVMOA에서 제거",
           () => {
-            requestConfirmation("Moa에서 제거할까요?", `“${favorite.title || "즐겨찾기"}”를 내 정리 목록에서 뺍니다. Notion의 원본 즐겨찾기는 그대로입니다.`, "onRemoveFavorite", [favorite.pageId], "제거");
+            requestConfirmation("FAVMOA에서 제거할까요?", `“${favorite.title || "즐겨찾기"}”를 내 정리 목록에서 뺍니다. Notion의 원본 즐겨찾기는 그대로입니다.`, "onRemoveFavorite", [favorite.pageId], "제거");
           },
           { danger: true }
         )
@@ -2081,6 +2069,11 @@
       }
       for (const node of currentPageNavigation?.roots || []) visit(node);
       visit(currentPageNavigation?.currentPage);
+      const current = currentPageNavigation?.currentPage;
+      if (current && current.pageId === String(currentActivePageId || "") && current.href) {
+        const indexed = navigationById.get(current.pageId);
+        navigationById.set(current.pageId, { ...indexed, href: current.href });
+      }
     }
 
     function sectionContainsActivePage(section) {
@@ -2151,7 +2144,7 @@
         className: "nfs-favorite-link",
         attributes: {
           href: node.href, "aria-current": isCurrent ? "page" : null,
-          title: node.href ? node.title : `${node.title} · 안전한 페이지 링크를 확인하지 못했습니다.`,
+          title: node.href ? node.title : `${node.title} · Notion에서 이 페이지를 한 번 열거나 즐겨찾기 목록을 펼쳐 주소를 확인해 주세요.`,
           "data-focus-key": node.href ? `navigation:${location}:${path}:link` : null
         }
       });
@@ -2195,11 +2188,12 @@
       const cached = currentFavoriteMetadata.get(pageId) || {};
       const metadata = metadataById.get(pageId) || {};
       const navigationTitle = ["현재 열린 페이지", "제목 없음"].includes(navigationNode?.title) ? "" : navigationNode?.title;
-      const canonicalHref = /^[a-f0-9]{32}$/u.test(pageId) ? `https://app.notion.com/${pageId}` : null;
+      const currentHref = pageId === String(currentActivePageId || "") && currentPageNavigation?.currentPage?.pageId === pageId
+        ? safeNavigationHref(currentPageNavigation.currentPage.href, pageId) : null;
       const favorite = {
         pageId,
         title: metadata.title || metadata.name || navigationTitle || cached.title || `제목을 불러오지 못한 페이지 · ${pageId.slice(-6)}`,
-        href: safeNavigationHref(metadata.href || metadata.url, pageId) || safeNavigationHref(navigationNode?.href, pageId) || canonicalHref,
+        href: currentHref || urls.preferredPageUrl(pageId, [metadata.href || metadata.url, navigationNode?.href, cached.href], { allowLegacyHost: true }),
         iconText: favoriteIconText(metadata.iconText || metadata.icon || navigationNode?.icon || cached.icon)
       };
       const item = element(documentRef, "li", {
@@ -2222,7 +2216,7 @@
               title: favorite.title,
               "aria-current": pageId === String(currentActivePageId || "") ? "page" : null
             }
-          : { title: "Notion 즐겨찾기 목록을 펼친 뒤 목록 갱신을 눌러 주세요." }
+          : { "aria-disabled": "true", title: "Notion에서 이 페이지를 한 번 열거나 즐겨찾기 목록을 펼친 뒤 목록 갱신을 눌러 주세요." }
       });
       const icon = pageIcon(documentRef, favorite.iconText);
       const title = element(documentRef, "span", {
@@ -2232,6 +2226,9 @@
       const handle = dragHandle(`${favorite.title} 즐겨찾기 이동`);
 
       link.append(icon, title);
+      if (!href) link.append(element(documentRef, "span", {
+        className: "nfs-page-navigation-helper", text: "주소 확인 필요"
+      }));
       row.append(link, handle, renderFavoriteMenu(favorite, section, groups));
       item.append(row);
       appendPageBranch(item, row, navigationNode, `favorite:${section.id}:${pageId}`, pageId);
@@ -2619,7 +2616,7 @@
         }, { disabled: currentImportPreview?.canManage === false || currentImportPreview?.busy === true });
         start.className += " nfs-primary";
         onboarding.append(start);
-        if (currentImportPreview?.canManage === false) onboarding.append(element(documentRef, "p", { text: "Moa를 닫고 Notion의 즐겨찾기 목록을 펼친 뒤 다시 열어 주세요." }));
+        if (currentImportPreview?.canManage === false) onboarding.append(element(documentRef, "p", { text: "FAVMOA를 닫고 Notion의 즐겨찾기 목록을 펼친 뒤 다시 열어 주세요." }));
         tree.append(onboarding);
       } else {
         renderedGroups.forEach((group) => {

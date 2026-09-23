@@ -2,7 +2,7 @@
 <html lang="ko" data-workspace-id="0123456789abcdef0123456789abcdef">
   <head>
     <meta charset="utf-8" />
-    <title>Moa smoke fixture</title>
+    <title>FAVMOA smoke fixture</title>
     <link rel="stylesheet" href="../src/content.css?v=0.1.9-title-cache" />
     <style>
       * { box-sizing: border-box; }
@@ -127,6 +127,7 @@
         fixtureUnderlayClickCount += 1;
       });
     </script>
+    <script src="../src/notion-url.js?v=0.1.18"></script>
     <script src="../src/favorite-tree-model.js?v=0.1.9-title-cache"></script>
     <script src="../src/profile-catalog.js?v=0.1.9-title-cache"></script>
     <script src="../src/notion-sidebar-adapter.js?v=0.1.9-title-cache"></script>
@@ -154,7 +155,7 @@
             "[data-notion-tree-primary-navigation-host]"
           );
           const triggerRoot = menuHost?.shadowRoot;
-          const trigger = triggerRoot?.querySelector('button[aria-label="Moa"]');
+          const trigger = triggerRoot?.querySelector('button[aria-label="FAVMOA"]');
           const viewHost = [...contentSurface.children].find((child) =>
             child.hasAttribute("data-notion-tree-primary-navigation-view-host")
           );
@@ -263,7 +264,7 @@
               contentSurface.lastElementChild === viewHost
           );
           const closeButton = panelRoot.querySelector(
-            'button[aria-label="Moa 패널 닫기"]'
+            'button[aria-label="FAVMOA 패널 닫기"]'
           );
           closeButton.click();
           await new Promise((resolve) => window.setTimeout(resolve, 30));
@@ -298,7 +299,7 @@
 
           document.body.dataset.smoke = passed ? "pass" : "fail";
           document.querySelector("#smoke-result").textContent = passed
-            ? "PASS: Moa internal surface failed open with disabled controls and native DOM preserved"
+            ? "PASS: FAVMOA internal surface failed open with disabled controls and native DOM preserved"
             : `FAIL: ${text}`;
         } catch (error) {
           document.body.dataset.smoke = "fail";

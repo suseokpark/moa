@@ -215,7 +215,7 @@ test("only this extension's app.notion.com content script is trusted", () => {
   assert.equal(isTrustedNotionSender({ id: extensionId }, extensionId), false);
 });
 
-test("background serializes tree and profile catalog CAS writes", async () => {
+test("archived Notion worker preserves historical tree and profile catalog CAS contracts", async () => {
   const extensionId = "extension-id";
   const sender = {
     id: extensionId,
@@ -259,8 +259,8 @@ test("background serializes tree and profile catalog CAS writes", async () => {
     }
   };
 
-  await import(`../src/background.js?cas-test=${Date.now()}`);
-  assert.equal(messageListeners.length, 1);
+  await import(`../test-support/legacy-notion-background.js?cas-test=${Date.now()}`);
+  assert.ok(messageListeners.length >= 2, "legacy and FAVMOA each register a scoped handler");
   assert.equal(connectListeners.length, 1);
 
   const port = {
@@ -276,7 +276,7 @@ test("background serializes tree and profile catalog CAS writes", async () => {
 
   function request(message) {
     return new Promise((resolve) => {
-      messageListeners[0](message, sender, resolve);
+      for (const listener of messageListeners) listener(message, sender, resolve);
     });
   }
 

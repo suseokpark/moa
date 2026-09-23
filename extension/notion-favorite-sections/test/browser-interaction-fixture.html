@@ -2,7 +2,7 @@
 <html lang="ko" data-workspace-id="0123456789abcdef0123456789abcdef">
   <head>
     <meta charset="utf-8" />
-    <title>Moa interaction fixture</title>
+    <title>FAVMOA interaction fixture</title>
     <link rel="stylesheet" href="../src/content.css?v=0.1.9-title-cache" />
     <style>
       * { box-sizing: border-box; }
@@ -280,6 +280,7 @@
       window.prompt = () => { throw new Error("Native prompt is forbidden in the user flow"); };
       window.confirm = () => { throw new Error("Native confirm is forbidden in the user flow"); };
     </script>
+    <script src="../src/notion-url.js?v=0.1.18"></script>
     <script src="../src/favorite-tree-model.js?v=0.1.9-title-cache"></script>
     <script src="../src/profile-catalog.js?v=0.1.9-title-cache"></script>
     <script src="../src/notion-sidebar-adapter.js?v=0.1.9-title-cache"></script>
@@ -410,7 +411,7 @@
             "[data-notion-tree-primary-navigation-host]"
           );
           const triggerRoot = menuHost?.shadowRoot;
-          const trigger = triggerRoot?.querySelector('button[aria-label="Moa"]');
+          const trigger = triggerRoot?.querySelector('button[aria-label="FAVMOA"]');
           const viewHost = [...contentSurface.children].find((child) =>
             child.hasAttribute("data-notion-tree-primary-navigation-view-host")
           );
@@ -714,7 +715,7 @@
           );
           roadmapMenu.click();
           let removeButton = [...treeRoot.querySelectorAll("button")].find(
-            (button) => button.textContent.trim() === "Moa에서 제거"
+            (button) => button.textContent.trim() === "FAVMOA에서 제거"
           );
           removeButton.focus();
           removeButton.dispatchEvent(
@@ -733,7 +734,7 @@
           );
           roadmapMenu.click();
           removeButton = [...treeRoot.querySelectorAll("button")].find(
-            (button) => button.textContent.trim() === "Moa에서 제거"
+            (button) => button.textContent.trim() === "FAVMOA에서 제거"
           );
           removeButton.click();
           await confirmInline(treeRoot);
@@ -752,7 +753,7 @@
             fixtureStorage.get(expectedStorageKey).groups.find(group => group.name === "업무").sections.find(section => section.name === "프로젝트").favorites.length === 2
           );
           treeRoot.querySelector('summary[aria-label="Roadmap 메뉴"]').click();
-          [...treeRoot.querySelectorAll("button")].find(button => button.textContent.trim() === "Moa에서 제거").click();
+          [...treeRoot.querySelectorAll("button")].find(button => button.textContent.trim() === "FAVMOA에서 제거").click();
           await confirmInline(treeRoot);
 
           openFavoritePicker(treeRoot);
@@ -805,7 +806,7 @@
             .filter((message) => message.type === "NFS_STORAGE_SET")
             .every((message) => message.payload.workspaceKey === expectedStorageKey);
           const closeButton = panelRoot.querySelector(
-            'button[aria-label="Moa 패널 닫기"]'
+            'button[aria-label="FAVMOA 패널 닫기"]'
           );
           closeButton.click();
           await wait(40);
@@ -868,7 +869,7 @@
 
           document.body.dataset.smoke = passed ? "pass" : "fail";
           document.querySelector("#smoke-result").textContent = passed
-            ? "PASS: Moa internal surface, explicit management, native preservation, and storage scope"
+            ? "PASS: FAVMOA internal surface, explicit management, native preservation, and storage scope"
             : `FAIL: ${failures.join(", ")}`;
         } catch (error) {
           document.body.dataset.smoke = "fail";

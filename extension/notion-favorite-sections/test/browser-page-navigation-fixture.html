@@ -1,14 +1,16 @@
 <!doctype html>
 <html lang="ko">
 <meta charset="utf-8">
-<title>Moa current page and child navigation regression</title>
+<title>FAVMOA current page and child navigation regression</title>
 <style>
 body { margin:20px; font:14px system-ui; background:#f7f7f5; color:#37352f; }
 #host { width:340px; min-height:620px; background:white; border:1px solid #ddd; }
 #results { position:absolute; left:390px; top:20px; max-width:760px; white-space:pre-wrap; }
 </style>
 <div id="host"></div><pre id="results">RUNNING</pre>
+<script src="../src/notion-url.js?v=0.1.18"></script>
 <script src="../src/favorite-tree-model.js?v=0.1.9-title-cache"></script>
+<script src="../src/notion-sidebar-adapter.js?v=0.1.17-route-preservation"></script>
 <script src="../src/favorite-tree-view.js?v=0.1.9-title-cache"></script>
 <script>
 (async () => {
@@ -48,6 +50,52 @@ body { margin:20px; font:14px system-ui; background:#f7f7f5; color:#37352f; }
   }
   async function test(name, fn) { await fn(); report.push(`PASS ${name}`); results.textContent = report.join('\n'); }
   try {
+    await test('Reported modern Notion route survives adapter, current-page rendering and native click', async () => {
+      setup();
+      // Synthetic workspace and page ID retain the reported URL shape only.
+      const href = 'https://app.notion.com/p/example-workspace/abcdef0123456789abcdef0123456789';
+      for (const targetHref of [href, `${href}?pvs=4#notes`]) {
+        const source = {location:new URL(targetHref), title:'예시 문서 | Notion', querySelectorAll:() => []};
+        navigation = NotionFavoriteSections.adapter.readPageNavigation(source);
+        activePageId = navigation.currentPage.pageId;
+        update();
+        const link = current().querySelector('a[aria-current="page"]');
+        check(link?.href === targetHref && link.textContent.includes('예시 문서'), 'Workspace route was lost');
+        check(navigation.scopeSafe === false && !current().querySelector('.nfs-page-toggle'), 'Unknown workspace gained child relationships');
+        let clickedHref;
+        link.addEventListener('click', event => {
+          check(!event.defaultPrevented, 'Native navigation was intercepted');
+          clickedHref = event.currentTarget.href;
+          event.preventDefault(); // Test-only: never navigate to private Notion data.
+        }, {once:true});
+        link.click();
+        check(clickedHref === targetHref && writeCount === 0, 'Wrong click URL or unexpected Favorites write');
+      }
+    });
+    await test('Current full URL wins stale Favorite metadata and equal-size navigation roots', async () => {
+      setup({active:0, sameCurrent:true});
+      const href = `https://app.notion.com/p/other-team/업무_${ids[0]}?pvs=4#notes`;
+      const expected = new URL(href).href;
+      navigation.currentPage = {...navigation.currentPage, href};
+      update();
+      check(current().querySelector('a')?.href === expected, 'Current card route lost');
+      check(favorite().querySelector(':scope > .nfs-row a')?.href === expected, 'Stale Favorite URL beat current URL');
+      check(favorite().querySelector('.nfs-page-toggle'), 'Current URL selection lost child tree');
+    });
+    await test('Cached original URL survives generic metadata and hidden source; unknown URL stays disabled', async () => {
+      setup({collapsed:false});
+      const href = `https://app.notion.com/p/cached-workspace/%31${ids[0].slice(1)}?pvs=4#notes`;
+      update({favoriteMetadata:[{pageId:ids[0], title:'업무 홈', icon:'', href}]});
+      check(favorite().querySelector('a')?.href === href, 'Generic source downgraded cached full URL');
+      navigation = {currentPage:null, roots:[], scopeSafe:false};
+      update({favorites:[]});
+      check(favorite().querySelector('a')?.href === href, 'Hidden source lost cached route');
+      update({favoriteMetadata:[]});
+      const label = favorite().querySelector('.nfs-favorite-link');
+      check(!favorite().querySelector('a') && label.getAttribute('aria-disabled') === 'true', 'Unknown URL was fabricated');
+      check(favorite().textContent.includes('주소 확인 필요'), 'Recovery hint not visible');
+      check(workspace.groups[0].sections[0].favorites.length === 1 && writeCount === 0, 'Unknown URL changed saved Favorite');
+    });
     await test('A current page outside Favorites is shown without being added or counted', async () => {
       setup();
       check(current().textContent.includes('현재 작업'), 'Current non-Favorite missing');
@@ -165,12 +213,12 @@ body { margin:20px; font:14px system-ui; background:#f7f7f5; color:#37352f; }
     });
     setup({active:2});
     results.textContent = `PASS: ${report.length} page navigation regressions\n` + report.join('\n');
-    document.title = `PASS ${report.length}: Moa page navigation`;
+    document.title = `PASS ${report.length}: FAVMOA page navigation`;
     window.pageNavigationResult = {ok:true, count:report.length, report};
     document.body.dataset.smoke = 'pass';
   } catch (error) {
     results.textContent = report.join('\n') + '\nFAIL: ' + error.stack;
-    document.title = 'FAIL: Moa page navigation';
+    document.title = 'FAIL: FAVMOA page navigation';
     window.pageNavigationResult = {ok:false, report, error:error.message};
     document.body.dataset.smoke = 'fail';
     console.error(error);

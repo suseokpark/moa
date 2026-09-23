@@ -46,6 +46,6 @@
     return `<svg xmlns="${svgNamespace}" viewBox="0 0 ${extent} ${extent}" fill="none">${artwork}</svg>\n`;
   }
 
-  namespace.brand = Object.freeze({ name: "Moa", koreanName: "모아", colors, shapes, createIcon, toSvg });
+  namespace.brand = Object.freeze({ name: "FAVMOA", koreanName: "팹모아", colors, shapes, createIcon, toSvg });
   globalScope.NotionFavoriteSections = namespace;
 })(globalThis);

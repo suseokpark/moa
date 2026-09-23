@@ -9,10 +9,11 @@
   const viewModule = namespace.view;
   const panelModule = namespace.panel;
   const profileModel = namespace.profileCatalog;
+  const urls = namespace.urls;
   const documentRef = globalScope.document;
 
-  if (!model || !adapter || !viewModule || !panelModule || !profileModel || !documentRef) {
-    console.warn("Moa could not initialize its modules.");
+  if (!model || !adapter || !viewModule || !panelModule || !profileModel || !urls || !documentRef) {
+    console.warn("FAVMOA could not initialize its modules.");
     return;
   }
 
@@ -118,16 +119,18 @@
     return map;
   }
 
-  function metadataEntry(value) {
+  function metadataEntry(value, previous = null) {
     const pageId = adapter.normalizePageId(value?.pageId);
-    if (!pageId || typeof value?.title !== "string") return null;
-    const title = value.title.replace(/[\u0000-\u001f\u007f-\u009f]/gu, " ").trim().slice(0, 300);
-    if (!title || title === "현재 열린 페이지" || title === "제목 없음") return null;
+    if (!pageId) return null;
+    let title = typeof value?.title === "string" ? value.title.replace(/[\u0000-\u001f\u007f-\u009f]/gu, " ").trim().slice(0, 300) : "";
+    if (!title || title === "현재 열린 페이지" || title === "제목 없음") title = previous?.pageId === pageId ? previous.title : "";
+    if (!title) return null;
     const rawIcon = value.iconText || value.icon || "";
     const icon = typeof adapter.normalizeEmojiIcon === "function"
       ? adapter.normalizeEmojiIcon(rawIcon) || ""
       : typeof rawIcon === "string" && !/[\u0000-\u001f\u007f-\u009f]/u.test(rawIcon) ? rawIcon.slice(0, 64) : "";
-    return { pageId, title, icon };
+    const href = urls.safePageUrl(value.href || value.url, { pageId, base: globalScope.location?.href });
+    return { pageId, title, icon, ...(href ? { href } : {}) };
   }
 
   function displayFavoriteMetadata() {
@@ -137,11 +140,16 @@
 
   function rememberFavoriteMetadata() {
     const managed = workspaceFavoriteMap();
-    const remember = value => {
-      const entry = metadataEntry(value);
-      if (!entry || !managed.has(entry.pageId)) return;
-      const previous = state.favoriteMetadata.get(entry.pageId);
+    const remember = (value, current = false) => {
+      const pageId = adapter.normalizePageId(value?.pageId);
+      if (!pageId || !managed.has(pageId)) return;
+      const previous = state.favoriteMetadata.get(pageId);
+      const entry = metadataEntry(value, previous);
+      if (!entry) return;
       if (!entry.icon && previous?.icon) entry.icon = previous.icon;
+      const currentHref = current ? urls.safePageUrl(globalScope.location?.href, { pageId: entry.pageId }) : null;
+      const href = currentHref || urls.preferredPageUrl(entry.pageId, [entry.href, previous?.href]);
+      if (href) entry.href = href;
       state.favoriteMetadata.set(entry.pageId, entry);
     };
     // Titles are independent of source eligibility. Cached entries never become
@@ -156,8 +164,10 @@
       }
     };
     if (state.pageNavigation.scopeSafe) visit(state.pageNavigation.roots);
-    if (state.pageNavigation.currentPage) remember(state.pageNavigation.currentPage);
-    state.favorites.forEach(remember);
+    state.favorites.forEach(value => remember(value));
+    // The actual page is recorded last: native rows may still advertise an old
+    // workspace route or a generic ID-only address during SPA navigation.
+    if (state.pageNavigation.currentPage) remember(state.pageNavigation.currentPage, true);
     // Retain recent in-memory labels for Undo, but never retain another
     // workspace's labels or persist entries not currently managed.
     while (state.favoriteMetadata.size > 10000) {
@@ -176,7 +186,12 @@
         const entry = metadataEntry(value);
         if (entry && managed.has(entry.pageId)) {
           stored.set(entry.pageId, entry);
-          if (!state.favoriteMetadata.has(entry.pageId)) state.favoriteMetadata.set(entry.pageId, entry);
+          const previous = state.favoriteMetadata.get(entry.pageId);
+          if (!previous) state.favoriteMetadata.set(entry.pageId, entry);
+          else {
+            const href = urls.preferredPageUrl(entry.pageId, [previous.href, entry.href]);
+            if (href) state.favoriteMetadata.set(entry.pageId, { ...previous, href });
+          }
         }
       }
       state.metadataSavedSignature = JSON.stringify([...managed.keys()].map(id => stored.get(id)).filter(Boolean));
@@ -364,13 +379,13 @@
   function createSurface(inspection) {
     const host = documentRef.createElement("div");
     host.className = "notion-tree-primary-navigation-root";
-    host.setAttribute("aria-label", "Moa 메뉴");
+    host.setAttribute("aria-label", "FAVMOA 메뉴");
     const mounted = adapter.mountPrimaryNavigationHost(inspection, host);
     if (!mounted) return false;
 
     const viewHost = documentRef.createElement("div");
     viewHost.className = "notion-tree-primary-navigation-view";
-    viewHost.setAttribute("aria-label", "Moa 화면");
+    viewHost.setAttribute("aria-label", "FAVMOA 화면");
     const mountedView = adapter.mountPrimaryNavigationViewHost(inspection, viewHost);
     if (!mountedView) {
       adapter.restorePrimaryNavigation(mounted);
@@ -388,7 +403,7 @@
             const workspaceKey = state.workspaceKey;
             if (workspaceKey) {
               enqueue(() => reloadStoredWorkspace(workspaceKey)).catch((error) => {
-                console.warn("Moa could not refresh its stored workspace.", error);
+                console.warn("FAVMOA could not refresh its stored workspace.", error);
               });
             }
           }
@@ -417,7 +432,7 @@
     } catch (error) {
       adapter.restorePrimaryNavigationView(mountedView);
       adapter.restorePrimaryNavigation(mounted);
-      console.warn("Moa could not create its Moa panel.", error);
+      console.warn("FAVMOA could not create its FAVMOA panel.", error);
       return false;
     }
   }
@@ -494,7 +509,7 @@
       const legacy = await readWorkspaceRecord(legacyKey);
       return legacy.workspace ? { workspaceKey: legacyKey, ...legacy } : null;
     } catch (error) {
-      console.warn("Moa could not inspect its previous profile data.", error);
+      console.warn("FAVMOA could not inspect its previous profile data.", error);
       return null;
     }
   }
@@ -586,7 +601,7 @@
       state.workspace = model.createWorkspace();
       state.storageRevision = 0;
       state.storageReady = false;
-      console.warn("Moa could not load its workspace.", error);
+      console.warn("FAVMOA could not load its workspace.", error);
     }
   }
 
@@ -861,7 +876,7 @@
         (workspace) => model.addFavorite(workspace, normalizedPageId),
         { workspaceKey, sourceSignature, undoLabel: "즐겨찾기 추가 되돌리기" }
       );
-      state.treeView?.announce("Favorite를 Moa에 추가했습니다.");
+      state.treeView?.announce("Favorite를 FAVMOA에 추가했습니다.");
       return result;
     });
   }
@@ -929,7 +944,7 @@
         (workspace) => model.removeFavorite(workspace, pageId),
         { ...observed, undoLabel: "즐겨찾기 제거 되돌리기" }
       );
-      state.treeView?.announce("Favorite를 Moa에서 제거했습니다.");
+      state.treeView?.announce("Favorite를 FAVMOA에서 제거했습니다.");
       return result;
     });
   }
@@ -979,7 +994,7 @@
         ...observed,
         undoLabel: "트리 초기화 되돌리기"
       });
-      state.treeView?.announce("Moa를 초기화했습니다.");
+      state.treeView?.announce("FAVMOA를 초기화했습니다.");
       return result;
     });
   }
@@ -1067,7 +1082,7 @@
     state.refreshTimer = globalScope.setTimeout(() => {
       state.refreshTimer = null;
       enqueue(refreshFromNotion).catch((error) => {
-        console.warn("Moa could not refresh its Notion context.", error);
+        console.warn("FAVMOA could not refresh its Notion context.", error);
         renderCurrent();
       });
     }, REFRESH_DELAY_MS);
@@ -1168,7 +1183,7 @@
           rememberFavoriteMetadata();
           renderCurrent();
         }).catch((error) => {
-          console.warn("Moa rejected a sync update.", error);
+          console.warn("FAVMOA rejected a sync update.", error);
         });
       });
       port.onDisconnect.addListener(() => {
@@ -1183,7 +1198,7 @@
       const workspaceKey = state.workspaceKey;
       if (workspaceKey) {
         enqueue(() => reloadStoredWorkspace(workspaceKey)).catch((error) => {
-          console.warn("Moa could not resync after reconnecting.", error);
+          console.warn("FAVMOA could not resync after reconnecting.", error);
         });
       }
     } catch (_error) {

@@ -1,12 +1,17 @@
 {
   "manifest_version": 3,
-  "name": "Moa",
-  "version": "0.1.9",
-  "description": "Organize rendered Notion Favorites into collapsible groups and sections.",
-  "minimum_chrome_version": "111",
+  "name": "FAVMOA",
+  "version": "0.1.21",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzhKOzNTBnTyJ1aw/684+oOZXxjAAWWIcqnVioEbMyWbK7CP44UtUu4AQfCVdVSbSpuUtcrGOemNYrGibu6QrhHTUVov/rDG9qUlCHR7QjJt46BmdtNY6fxggGCzLAVHnhbEqkNbxg1re1M0wYE+cTwEC+8bhcEhBUivjrDob2kV7lC/qdv9MlBbuPyQsOXl7zPJrFK2xUXMi13BVcKWqWNpZlh+jBKV31+98nXPnb8u8uAZKY4HSVgDV8UQoy4lp7LJICkvviXrOGZR0Un5mWMNbWRwK1NuLRUC4epSZYtgOCCAJTpVqwF2dfhIqd4rEnY6F6mdGKz28qhbi12PXZQIDAQAB",
+  "description": "팹모아 — Organize links into groups and subgroups, find the current page, and switch to existing tabs.",
+  "minimum_chrome_version": "116",
   "permissions": [
-    "storage"
+    "storage",
+    "sidePanel",
+    "tabs"
   ],
+  "optional_permissions": ["bookmarks"],
+  "side_panel": { "default_path": "sidepanel/sidepanel.html" },
   "icons": {
     "16": "icons/moa-16.png",
     "32": "icons/moa-32.png",
@@ -18,33 +23,12 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Moa",
-    "default_popup": "popup/popup.html",
+    "default_title": "FAVMOA",
     "default_icon": {
       "16": "icons/moa-16.png",
       "32": "icons/moa-32.png",
       "48": "icons/moa-48.png",
       "128": "icons/moa-128.png"
     }
-  },
-  "content_scripts": [
-    {
-      "matches": [
-        "https://app.notion.com/*"
-      ],
-      "js": [
-        "src/favorite-tree-model.js",
-        "src/profile-catalog.js",
-        "src/notion-sidebar-adapter.js",
-        "src/favorite-tree-view.js",
-        "src/moa-brand.js",
-        "src/notion-tree-panel.js",
-        "src/content.js"
-      ],
-      "css": [
-        "src/content.css"
-      ],
-      "run_at": "document_idle"
-    }
-  ]
+  }
 }

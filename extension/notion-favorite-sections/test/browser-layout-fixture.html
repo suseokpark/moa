@@ -1,10 +1,10 @@
 <!doctype html>
 <html lang="ko">
 <meta charset="utf-8">
-<title>Moa layout regression</title>
+<title>FAVMOA layout regression</title>
 <style>body{font:14px system-ui;margin:20px}iframe{width:100%;height:850px;border:1px solid #ccc}pre{white-space:pre-wrap}</style>
 <h1>좁은 화면 · 긴 제목 · 40개 항목</h1>
-<pre id="result">pending</pre><iframe title="Moa stress scenario"></iframe>
+<pre id="result">pending</pre><iframe title="FAVMOA stress scenario"></iframe>
 <script>
 const frame = document.querySelector('iframe');
 const result = document.querySelector('#result');
@@ -30,7 +30,7 @@ async function nameForm(root, name) {
    const nav=doc.querySelector('[role="tablist"]');
    check(label+' navigation fits',nav.scrollWidth<=nav.clientWidth+1);
    // Native labels are owned by the fixture/Notion; check only our compact control.
-   check(label+' compact Moa retains accessible name',menu.hasAttribute('data-compact')&&menu.getAttribute('aria-label')==='Moa');
+   check(label+' compact FAVMOA retains accessible name',menu.hasAttribute('data-compact')&&menu.getAttribute('aria-label')==='FAVMOA');
    root.querySelector('[aria-label="그룹 추가"]').click();
    await nameForm(root,'고객 인터뷰와 제품 기획을 함께 관리하는 업무 그룹');
    root.querySelector('[aria-label$="에 섹션 추가"]').click();
@@ -65,10 +65,10 @@ async function nameForm(root, name) {
    const scrollRect=scroll.getBoundingClientRect();
    check(label+' last row menu remains visible '+JSON.stringify({menuTop:menuRect.top,menuBottom:menuRect.bottom,scrollTop:scrollRect.top,scrollBottom:scrollRect.bottom}),menuRect.top>=scrollRect.top-1&&menuRect.bottom<=scrollRect.bottom+1);
   }
-  document.body.dataset.smoke='pass'; document.title='PASS: Moa layout';
+  document.body.dataset.smoke='pass'; document.title='PASS: FAVMOA layout';
   result.textContent='PASS: '+checks.length+' layout checks\n'+checks.map(c=>'PASS '+c.name).join('\n');
  } catch(error) {
-  document.body.dataset.smoke='fail'; document.title='FAIL: Moa layout'; result.textContent='FAIL: '+error.message+'\n'+error.stack;
+  document.body.dataset.smoke='fail'; document.title='FAIL: FAVMOA layout'; result.textContent='FAIL: '+error.message+'\n'+error.stack;
  }
 })();
 </script>

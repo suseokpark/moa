@@ -1,13 +1,14 @@
 <!doctype html>
 <html lang="ko">
 <meta charset="utf-8">
-<title>Moa everyday usability regression</title>
+<title>FAVMOA everyday usability regression</title>
 <style>
 body { margin: 20px; font: 14px system-ui; background: #f7f7f5; color: #37352f; }
 #host { width: 340px; min-height: 650px; background: white; border: 1px solid #ddd; }
 #results { position: absolute; left: 390px; top: 20px; max-width: 760px; white-space: pre-wrap; }
 </style>
 <div id="host"></div><pre id="results">RUNNING</pre>
+<script src="../src/notion-url.js?v=0.1.18"></script>
 <script src="../src/favorite-tree-model.js?v=0.1.9-title-cache"></script>
 <script src="../src/favorite-tree-view.js?v=0.1.9-title-cache"></script>
 <script>
@@ -144,8 +145,9 @@ body { margin: 20px; font: 14px system-ui; background: #f7f7f5; color: #37352f; 
     await test('Saved dormant pages remain visible with remove/move controls', async () => {
       setup({ dormant: true }); const item = find('[data-page-id="' + ids[1] + '"]');
       check(item && item.textContent.includes('제목을 불러오지 못한 페이지'), 'Dormant page disappeared');
-      check(item.querySelector('a.nfs-favorite-link')?.href === `https://app.notion.com/${ids[1]}`, 'Saved valid page ID should remain navigable without a live title');
-      check(item.querySelector('summary') && textButton('Moa에서 제거', item), 'Dormant page is unmanageable');
+      check(!item.querySelector('a.nfs-favorite-link') && item.querySelector('.nfs-favorite-link').getAttribute('aria-disabled') === 'true', 'Unknown URL should not be fabricated from a saved page ID');
+      check(item.textContent.includes('주소 확인 필요'), 'Unknown URL needs a visible recovery hint');
+      check(item.querySelector('summary') && textButton('FAVMOA에서 제거', item), 'Dormant page is unmanageable');
     });
     await test('Favorite menu up/down changes order without dragging', async () => {
       setup(); let item = find('[data-page-id="' + ids[1] + '"]'); await click(item.querySelector('summary'));
@@ -208,17 +210,17 @@ body { margin: 20px; font: 14px system-ui; background: #f7f7f5; color: #37352f; 
       check(menuRect.top >= viewportRect.top - 1 && menuRect.bottom <= viewportRect.bottom + 1, 'Menu vertically clipped');
       check(menuRect.left >= viewportRect.left - 1 && menuRect.right <= viewportRect.right + 1, 'Menu horizontally clipped');
       check(panel.scrollHeight > panel.clientHeight, 'Short viewport should provide internal menu scrolling');
-      const remove = textButton('Moa에서 제거', panel); remove.focus(); await settle();
+      const remove = textButton('FAVMOA에서 제거', panel); remove.focus(); await settle();
       check(remove.getBoundingClientRect().bottom <= panel.getBoundingClientRect().bottom + 1, 'Last action cannot be reached');
       escape(remove); check(!summary.parentElement.open && host.shadowRoot.activeElement === summary, 'Bounded menu broke Escape/focus');
       view.destroy(); scroller.before(host); scroller.remove(); host.style.width = ''; setup();
     });
     results.textContent = `PASS: ${report.length} everyday usability regressions\n` + report.join('\n');
-    document.title = `PASS ${report.length}: Moa usability`;
+    document.title = `PASS ${report.length}: FAVMOA usability`;
     window.usabilityResult = { ok: true, count: report.length, report };
   } catch (error) {
     results.textContent = report.join('\n') + '\nFAIL: ' + error.stack;
-    document.title = 'FAIL: Moa usability';
+    document.title = 'FAIL: FAVMOA usability';
     window.usabilityResult = { ok: false, report, error: error.message };
     console.error(error);
   }

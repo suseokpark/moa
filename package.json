@@ -1,8 +1,8 @@
 {
-  "name": "moa",
-  "version": "0.1.9",
+  "name": "favmoa",
+  "version": "0.1.21",
   "private": true,
-  "description": "Organize Notion favorites into collapsible groups and sections.",
+  "description": "FAVMOA: organize links into nested groups and reuse open tabs.",
   "type": "module",
   "scripts": {
     "build:extension-icons": "node extension/notion-favorite-sections/scripts/build-brand-assets.mjs",

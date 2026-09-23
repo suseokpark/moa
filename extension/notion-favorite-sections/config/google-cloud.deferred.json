@@ -1,0 +1,13 @@
+{
+  "status": "deferred",
+  "oauth2": {
+    "client_id": "24454578838-6nqb1s33u6djs6inpn2jud1nfq0ojevn.apps.googleusercontent.com",
+    "scopes": [
+      "openid",
+      "email",
+      "https://www.googleapis.com/auth/drive.appdata"
+    ]
+  },
+  "requiredPermissions": ["identity"],
+  "requiredHostPermissions": ["https://www.googleapis.com/*"]
+}

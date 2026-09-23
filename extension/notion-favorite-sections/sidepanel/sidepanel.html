@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>FAVMOA · 팹모아</title>
+  <link rel="stylesheet" href="sidepanel.css">
+  <script src="../src/moa-brand.js" defer></script>
+  <script src="sidepanel.js" type="module"></script>
+  <script src="../src/theme-settings.js" type="module"></script>
+</head>
+<body>
+  <div class="app">
+    <header class="brand-header">
+      <img src="../icons/moa-mark.svg" width="34" height="34" alt="">
+      <div><h1>FAVMOA <span>팹모아</span></h1><p>링크를 모으고, 바로 찾기</p></div>
+      <span class="version">0.1.21</span>
+      <button id="theme-open" class="text-button" type="button" aria-haspopup="dialog"><svg class="theme-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 1.6-3.2l-.6-.8a1.5 1.5 0 0 1 1.2-2.4H18a3 3 0 0 0 3-3C21 6.8 17 3 12 3Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="7.5" cy="10" r="1.6" fill="#34856a"/><circle cx="11.5" cy="6.8" r="1.6" fill="#4b80d6"/><circle cx="16.3" cy="8.5" r="1.6" fill="#ce668e"/></svg>테마</button>
+    </header>
+    <p id="demo-notice" class="notice" hidden>미리보기 · 현재 페이지와 북마크는 예시입니다. 실제 확장 데이터와는 별도로 저장됩니다.</p>
+    <p id="theme-announcement" class="sr-only" role="status" aria-live="polite"></p>
+    <div class="connection-bar"><div><strong><span class="ui-icon icon-check" aria-hidden="true"></span>이 브라우저에 자동 저장</strong></div><button id="backup-shortcut" class="text-button">백업</button></div>
+    <section class="current-card" aria-labelledby="current-label">
+      <div class="eyebrow" id="current-label"><span class="live-dot"></span>지금 보고 있는 페이지</div>
+      <div id="current-page"><strong>페이지를 확인하고 있어요</strong></div>
+      <p id="saved-location" class="saved-location" hidden></p>
+      <button id="save-current" class="quiet-button" type="button"><span class="ui-icon icon-plus" aria-hidden="true"></span>이 페이지 담기</button>
+    </section>
+    <div class="library-bar"><label class="sr-only" for="library-picker">보관함</label><select id="library-picker"></select><button id="rename-library" class="text-button" aria-label="보관함 이름 변경">이름 변경</button><button id="add-library" class="icon-button" aria-label="보관함 추가" title="보관함 추가"><span class="ui-icon icon-plus" aria-hidden="true"></span></button></div>
+    <div class="search-bar"><span class="ui-icon icon-search" aria-hidden="true"></span><label class="sr-only" for="search">저장한 링크 검색</label><input id="search" type="search" placeholder="이 보관함에서 검색" autocomplete="off"><button id="clear-search" class="text-button" aria-label="검색어 지우기" hidden>지우기</button><kbd>/</kbd></div>
+    <div class="tree-toolbar"><p id="link-count">내 링크</p><div><button id="add-group" class="text-button"><span class="ui-icon icon-plus" aria-hidden="true"></span>그룹</button><button id="add-link" class="primary small"><span class="ui-icon icon-plus" aria-hidden="true"></span>링크 추가</button></div></div>
+    <p id="status" class="status" role="status" aria-live="polite"></p>
+    <div id="tree" aria-label="그룹과 하위 그룹으로 정리한 링크"></div>
+    <footer class="footer">
+      <div class="save-state"><span id="storage-status">이 브라우저에 저장</span><button id="undo" class="text-button" disabled>되돌리기</button></div>
+      <details id="settings"><summary>백업 · 가져오기 · 설정</summary><div class="settings-content">
+        <section id="backup-section" class="settings-section" tabindex="-1"><h2>JSON 파일로 백업</h2><p id="backup-summary">전체 보관함과 링크를 파일로 보관합니다.</p><div class="button-stack"><button id="export-backup">JSON 백업 저장</button><button id="import-backup">JSON 백업 불러오기…</button></div><p>다른 브라우저에서도 이 파일을 불러올 수 있습니다. 제목·주소가 포함되니 안전하게 보관하세요.</p><input id="backup-file" type="file" accept=".json,application/json" hidden><div class="restore-safety"><h3>복원 전 목록 보호</h3><p id="restore-point-status">백업을 불러오면 바꾸기 직전 목록을 별도로 보관합니다.</p><button id="restore-previous-backup" disabled>복원 전 목록 복구…</button></div></section>
+        <section class="settings-section"><h2>내 링크 가져오기</h2><p>원본은 그대로 두고 팹모아에 복사합니다.</p><div class="button-stack"><button id="import-legacy">기존 Moa 목록 가져오기</button><button id="import-bookmarks">Chrome 북마크 선택 가져오기</button></div></section>
+        <details class="usage-help"><summary>사용 안내</summary><p>그룹 옆 +에서 링크와 하위 그룹을 추가하세요. 그룹 메뉴에서 하위 내용 전체를 다른 그룹으로 옮길 수 있습니다.</p><p>그룹의 ⋯ → 그룹 색상에서 표식과 연결선 색을 바꿀 수 있어요. 하위 그룹은 각각 따로 설정하며, 기본 색상으로 되돌릴 수 있습니다.</p><p>로그인 없이 이 브라우저에 저장합니다. 기기 간 이동은 JSON 백업을 이용하세요. 그룹 색상이 포함된 백업은 0.1.21 이상에서 불러오세요. 색상은 백업에 포함되지만 전체 테마는 이 브라우저에만 저장됩니다.</p><p>링크를 누르면 이미 열린 탭으로 이동합니다. 새 탭은 링크 메뉴에서 선택하세요.</p><p>0.1.19부터 Notion 내부 메뉴는 제공하지 않습니다. 기존 목록은 삭제하지 않으며, 필요하면 ‘기존 Moa 목록 가져오기’로 복사할 수 있습니다. Notion 페이지와 Drive 폴더는 일반 링크로 담아 원본에서 열 수 있습니다. Google 연결·자동 동기화는 이번 버전에서 제공하지 않습니다.</p><p>되돌리기는 마지막 변경 1회만 취소합니다. 복원 전 안전 사본은 별도로 유지됩니다.</p><a href="../popup/popup.html" target="_blank" rel="noopener noreferrer">설치·권한 안내</a><a href="../icons/ui/LICENSE.txt" target="_blank" rel="noopener noreferrer">아이콘 라이선스</a></details>
+        <section class="settings-section danger-zone"><h2>현재 보관함 초기화</h2><p>원본 문서와 저장한 백업 파일은 삭제하지 않습니다.</p><button id="reset-library" class="danger">보관함 초기화…</button></section>
+      </div></details>
+      <p class="footer-note">원본을 바꾸지 않는, 나만의 정리 공간</p>
+    </footer>
+  </div>
+  <dialog id="dialog" aria-labelledby="dialog-title"><form id="dialog-form"><div class="dialog-header"><h2 id="dialog-title"></h2><button id="dialog-close" type="button" class="icon-button" aria-label="닫기"><span class="ui-icon icon-close" aria-hidden="true"></span></button></div><div id="dialog-body"></div><p id="dialog-error" class="error" role="alert"></p><div class="dialog-actions"><button id="dialog-cancel" type="button">취소</button><button id="dialog-submit" type="submit" class="primary">저장</button></div></form></dialog>
+  <dialog id="theme-dialog" aria-labelledby="theme-title" aria-describedby="theme-description">
+    <form id="theme-form">
+      <div class="dialog-header"><h2 id="theme-title">내 취향으로 꾸미기</h2><button id="theme-close" type="button" class="icon-button" aria-label="테마 닫기"><span class="ui-icon icon-close" aria-hidden="true"></span></button></div>
+      <p id="theme-description" class="form-note">색을 골라 미리 보고 저장하세요. 취소하면 원래 테마로 돌아갑니다.</p>
+      <label class="field" for="theme-mode">화면 모드<select id="theme-mode"><option value="system">시스템 설정에 맞춤</option><option value="light">라이트</option><option value="dark">다크</option></select></label>
+      <fieldset class="theme-presets"><legend>추천 색상</legend><div id="theme-presets" class="theme-preset-grid"></div></fieldset>
+      <div class="theme-colors">
+        <div class="theme-color-row"><label for="theme-accent-hex">강조색</label><input id="theme-accent-picker" type="color" aria-label="강조색 색상 선택"><input id="theme-accent-hex" type="text" maxlength="7" spellcheck="false" autocomplete="off" placeholder="#176b55" aria-describedby="theme-color-help"></div>
+        <div class="theme-color-row"><label for="theme-light-hex">라이트 배경</label><input id="theme-light-picker" type="color" aria-label="라이트 배경 색상 선택"><input id="theme-light-hex" type="text" maxlength="7" spellcheck="false" autocomplete="off" placeholder="#ffffff" aria-describedby="theme-color-help"></div>
+        <div class="theme-color-row"><label for="theme-dark-hex">다크 배경</label><input id="theme-dark-picker" type="color" aria-label="다크 배경 색상 선택"><input id="theme-dark-hex" type="text" maxlength="7" spellcheck="false" autocomplete="off" placeholder="#191d1b" aria-describedby="theme-color-help"></div>
+      </div>
+      <p id="theme-color-help" class="form-note">색상 선택기를 누르거나 #RRGGBB 형식으로 입력하세요. 글자·버튼 색은 읽기 좋게 자동 조정됩니다.</p>
+      <div class="theme-preview" aria-label="테마 미리보기"><strong>자주 찾는 링크를 한곳에</strong><p>본문과 설명이 잘 보이는지 확인해 보세요.</p><span class="theme-preview-tag">선택한 링크</span><span class="theme-preview-primary">링크 추가</span></div>
+      <p id="theme-feedback" class="form-note" role="status" aria-live="polite"></p>
+      <p id="theme-error" class="error" role="alert"></p>
+      <p class="form-note">이 Chrome 프로필에만 저장합니다. 링크 목록과 JSON 백업은 바뀌지 않습니다.</p>
+      <div class="dialog-actions theme-actions"><button id="theme-reset" class="text-button" type="button">기본 테마로</button><button id="theme-cancel" type="button">취소</button><button id="theme-save" class="primary" type="submit">저장</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

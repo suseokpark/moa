@@ -22,10 +22,10 @@ function escapeRegExp(value) {
 }
 
 for (const [name, source] of fixtures) {
-  test(`${name} loads the Moa brand before the panel shell`, () => {
+  test(`${name} loads the FAVMOA brand before the panel shell`, () => {
     const brandIndex = source.search(/src="\.\.\/src\/moa-brand\.js(?:\?[^"]*)?"/u);
     const panelIndex = source.search(/src="\.\.\/src\/notion-tree-panel\.js(?:\?[^"]*)?"/u);
-    assert.ok(brandIndex >= 0, "the shared Moa brand module must be loaded");
+    assert.ok(brandIndex >= 0, "the shared FAVMOA brand module must be loaded");
     assert.ok(panelIndex > brandIndex, "the brand must load before the panel shell");
   });
 

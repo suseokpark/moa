@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
 const port = Number(process.env.PORT || 4173);
-const demo = "/extension/notion-favorite-sections/test/browser-live-demo.html";
+const demo = "/extension/notion-favorite-sections/sidepanel/sidepanel.html";
 const types = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
@@ -51,5 +51,5 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`Moa demo: http://127.0.0.1:${port}`);
+  console.log(`FAVMOA preview: http://127.0.0.1:${port}`);
 });

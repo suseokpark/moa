@@ -1,12 +1,13 @@
 <!doctype html>
 <html lang="ko">
 <meta charset="utf-8">
-<title>Moa icon regression</title>
+<title>FAVMOA icon regression</title>
 <style>body{font:14px system-ui;margin:24px;color:#37352f;background:#fafafa}#host{width:360px;min-height:500px;background:white}#source{margin:16px 0;display:flex;gap:12px}#source a{color:inherit;text-decoration:none}#result{white-space:pre-wrap}h1{font-size:20px}</style>
-<h1>Moa · 아이콘 회귀 검사</h1>
+<h1>FAVMOA · 아이콘 회귀 검사</h1>
 <p>실제 Notion의 접근성 설명 + 이모지 구조를 재현한 로컬 화면입니다.</p>
 <section id="source" aria-label="Favorites"></section>
 <div id="host"></div><pre id="result">RUNNING</pre>
+<script src="../src/notion-url.js?v=0.1.18"></script>
 <script src="../src/notion-sidebar-adapter.js?v=0.1.9-title-cache"></script>
 <script src="../src/favorite-tree-model.js?v=0.1.9-title-cache"></script>
 <script src="../src/favorite-tree-view.js?v=0.1.9-title-cache"></script>
@@ -54,8 +55,8 @@
    else check(node?.textContent===value,'complex emoji '+i+' stays intact');
   }
   check(icons.every(icon=>getComputedStyle(icon).whiteSpace==='nowrap'&&icon.scrollHeight<=icon.clientHeight+1),'icon boxes never wrap or overflow vertically');
-  result.textContent='PASS '+checks.length+' icon checks\n'+checks.join('\n');document.title='PASS: Moa icons';document.body.dataset.smoke='pass';
- }catch(error){result.textContent=checks.join('\n')+'\nFAIL: '+error.message;document.title='FAIL: Moa icons';document.body.dataset.smoke='fail';}
+  result.textContent='PASS '+checks.length+' icon checks\n'+checks.join('\n');document.title='PASS: FAVMOA icons';document.body.dataset.smoke='pass';
+ }catch(error){result.textContent=checks.join('\n')+'\nFAIL: '+error.message;document.title='FAIL: FAVMOA icons';document.body.dataset.smoke='fail';}
 })();
 </script>
 </html>

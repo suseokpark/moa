@@ -6,3 +6,6 @@ coverage/
 .env
 .env.*
 !.env.example
+.private/
+*.pem
+*.key

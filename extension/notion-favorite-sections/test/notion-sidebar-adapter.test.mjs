@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+await import("../src/notion-url.js");
 await import("../src/notion-sidebar-adapter.js");
 
 const adapter = globalThis.NotionFavoriteSections?.adapter;
@@ -501,7 +502,36 @@ test("page navigation reads native Favorite ARIA hierarchy without importing chi
   assert.deepEqual(adapter.readFavorites(favorites).map((favorite) => favorite.pageId), [COMPACT_ID]);
 });
 
-test("current non-Favorite page uses a rendered title and otherwise a canonical fallback", () => {
+test("duplicate observed metadata promotes a scoped URL without changing order or page identity", () => {
+  const scoped = `https://app.notion.com/p/acme/Planning_${COMPACT_ID}?pvs=4`;
+  const result = adapter.dedupeFavorites([
+    { pageId: COMPACT_ID, title: "First label", href: `https://app.notion.com/${COMPACT_ID}` },
+    { pageId: COMPACT_ID, title: "Other label", href: scoped },
+  ]);
+  assert.equal(result.length, 1);
+  assert.equal(result[0].title, "First label");
+  assert.equal(result[0].href, scoped);
+  assert.equal(adapter.dedupeFavorites([{ pageId: COMPACT_ID, title: "Wrong URL", href: `https://app.notion.com/${OTHER_ID}` }])[0].href, null);
+});
+
+test("merged page trees retain the more specific observed child URL across source order", () => {
+  const { documentLike, sidebar } = pageNavigationFixture();
+  const privatePages = navigationSection("Private", documentLike);
+  privatePages.append(favoriteRow(COMPACT_ID, "Parent", documentLike));
+  const favorites = navigationSection("Favorites", documentLike);
+  const parent = favoriteRow(COMPACT_ID, "Parent", documentLike);
+  const scoped = `https://app.notion.com/p/acme/Parent_${COMPACT_ID}#notes`;
+  parent.children[0].setAttribute("href", scoped);
+  parent.append(favoriteRow(CHILD_ID, "Child", documentLike));
+  favorites.append(parent);
+  sidebar.append(privatePages, favorites);
+  const result = adapter.readPageNavigation(documentLike, { activePageId: OTHER_ID });
+  assert.equal(result.scopeSafe, true);
+  assert.equal(result.roots[0].href, scoped);
+  assert.equal(result.roots[0].children[0].pageId, CHILD_ID);
+});
+
+test("current non-Favorite page uses rendered metadata but never invents an unknown URL", () => {
   const { documentLike, sidebar } = pageNavigationFixture();
   const personal = navigationSection("Private", documentLike);
   personal.append(favoriteRow(CHILD_ID, "Not saved in Moa", documentLike));
@@ -514,7 +544,7 @@ test("current non-Favorite page uses a rendered title and otherwise a canonical 
   assert.deepEqual(fallback.currentPage, {
     pageId: OTHER_ID,
     title: "현재 열린 페이지",
-    href: `https://app.notion.com/${OTHER_ID}`,
+    href: null,
     icon: null,
     children: [],
   });
@@ -546,7 +576,7 @@ test("page navigation excludes hidden rows, invalid links, extension hosts and p
   assert.deepEqual(result.roots.map((node) => node.pageId), [COMPACT_ID]);
   assert.deepEqual(result.roots[0].children, []);
   assert.equal(result.currentPage.title, "현재 열린 페이지");
-  assert.equal(result.currentPage.href, `https://app.notion.com/${CHILD_ID}`);
+  assert.equal(result.currentPage.href, null);
 });
 
 test("unlisted current page reads only its document title and strips Notion tab decoration", () => {
@@ -555,7 +585,7 @@ test("unlisted current page reads only its document title and strips Notion tab 
     documentLike.title = title;
     const result = adapter.readPageNavigation(documentLike);
     assert.equal(result.currentPage.title, "Project notes");
-    assert.equal(result.currentPage.href, `https://app.notion.com/${COMPACT_ID}`);
+    assert.equal(result.currentPage.href, documentLike.location.href);
     assert.deepEqual(result.currentPage.children, []);
   }
   for (const title of ["Notion", "(9+) Notion", "노션", " "]) {
@@ -564,6 +594,69 @@ test("unlisted current page reads only its document title and strips Notion tab 
   }
   documentLike.title = "A different page | Notion";
   assert.equal(adapter.readPageNavigation(documentLike, { activePageId: OTHER_ID }).currentPage.title, "현재 열린 페이지");
+});
+
+test("unlisted current page preserves the reported modern workspace route", () => {
+  const { documentLike } = pageNavigationFixture();
+  // Synthetic identifiers reproduce the reported route without private data.
+  const href = "https://app.notion.com/p/example-workspace/abcdef0123456789abcdef0123456789";
+  documentLike.location = new URL(href);
+  documentLike.title = "예시 문서 | Notion";
+  const result = adapter.readPageNavigation(documentLike);
+  assert.equal(result.scopeSafe, false);
+  assert.equal(result.currentPage.title, "예시 문서");
+  assert.equal(result.currentPage.href, href);
+  assert.deepEqual(result.currentPage.children, []);
+});
+
+test("current page keeps live path, query and hash instead of stale native or saved URLs", () => {
+  for (const source of ["unlisted", "saved", "rendered"]) {
+    const { documentLike, sidebar } = pageNavigationFixture();
+    const href = `https://app.notion.com/p/another-workspace/Planning-${COMPACT_ID}?v=${OTHER_ID}#${CHILD_ID}`;
+    documentLike.location = new URL(href);
+    const favorites = [{ pageId: COMPACT_ID, title: "Saved label", href: `https://app.notion.com/${COMPACT_ID}` }];
+    if (source === "rendered") {
+      const section = navigationSection("Private", documentLike);
+      const parent = favoriteRow(COMPACT_ID, "Rendered label", documentLike);
+      parent.append(favoriteRow(CHILD_ID, "Rendered child", documentLike));
+      section.append(parent);
+      sidebar.append(section);
+    }
+    const result = adapter.readPageNavigation(documentLike, { favorites: source === "saved" ? favorites : [] });
+    assert.equal(result.currentPage.href, href, source);
+    if (source === "rendered") assert.equal(result.currentPage.children[0].pageId, CHILD_ID);
+  }
+});
+
+test("current page only takes a live or saved URL validated against its own page ID", () => {
+  const { documentLike } = pageNavigationFixture();
+  const savedHref = `https://app.notion.com/p/saved-workspace/${OTHER_ID}?pvs=4#notes`;
+  documentLike.location = new URL(`https://app.notion.com/p/current-workspace/${COMPACT_ID}`);
+  assert.equal(adapter.readPageNavigation(documentLike, {
+    activePageId: OTHER_ID,
+    favorites: [{ pageId: OTHER_ID, title: "Saved", href: savedHref }],
+  }).currentPage.href, savedHref);
+  for (const href of [
+    `https://app.notion.com/p/wrong-page/${COMPACT_ID}`,
+    `https://evil.example/p/workspace/${OTHER_ID}`,
+    `https://user@app.notion.com/p/workspace/${OTHER_ID}`,
+    "javascript:alert(1)",
+  ]) {
+    documentLike.location = new URL(href);
+    assert.equal(adapter.readPageNavigation(documentLike, {
+      activePageId: OTHER_ID, favorites: [{ pageId: OTHER_ID, href }],
+    }).currentPage.href, null, href);
+  }
+});
+
+test("current page preserves location objects without href and legacy slugged routes", () => {
+  const { documentLike } = pageNavigationFixture();
+  documentLike.location = {
+    origin: "https://app.notion.com", pathname: `/acme/Planning-${COMPACT_ID}`,
+    search: "?pvs=4", hash: "#notes",
+  };
+  assert.equal(adapter.readPageNavigation(documentLike).currentPage.href,
+    `https://app.notion.com/acme/Planning-${COMPACT_ID}?pvs=4#notes`);
 });
 
 test("extension-hidden native source rows are not treated as rendered page navigation", () => {

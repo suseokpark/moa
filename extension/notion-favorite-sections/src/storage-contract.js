@@ -1,3 +1,5 @@
+import "./notion-url.js";
+
 export const STORAGE_MESSAGE_TYPES = Object.freeze({
   GET: "NFS_STORAGE_GET",
   SET: "NFS_STORAGE_SET",
@@ -307,10 +309,11 @@ export function validateMetadataEntries(entries) {
     fail("Metadata entries must be an array within the supported Favorite count.");
   }
   const seenPageIds = new Set();
-  entries.forEach((entry, index) => {
+  const normalized = entries.map((entry, index) => {
     const path = `metadata[${index}]`;
     if (!isPlainObject(entry)) fail(`${path} must be an object.`);
-    assertExactKeys(entry, ["pageId", "title", "icon"], path);
+    const hasHref = Object.prototype.hasOwnProperty.call(entry, "href");
+    assertExactKeys(entry, ["pageId", "title", "icon", ...(hasHref ? ["href"] : [])], path);
     assertString(entry.pageId, `${path}.pageId`, { min: 32, max: 32, pattern: /^[0-9a-f]{32}$/u });
     assertString(entry.title, `${path}.title`, { min: 1, max: 300 });
     assertString(entry.icon, `${path}.icon`, { max: 64 });
@@ -319,11 +322,19 @@ export function validateMetadataEntries(entries) {
     }
     if (seenPageIds.has(entry.pageId)) fail(`${path}.pageId appears more than once.`);
     seenPageIds.add(entry.pageId);
+    let href = null;
+    if (hasHref) {
+      assertString(entry.href, `${path}.href`, { min: 1, max: 4096 });
+      if (!/^https:\/\//iu.test(entry.href)) fail(`${path}.href must be an absolute HTTPS page URL.`);
+      href = globalThis.NotionFavoriteSections.urls.safePageUrl(entry.href, { pageId: entry.pageId });
+      if (!href) fail(`${path}.href must identify the same page on app.notion.com.`);
+    }
+    return { pageId: entry.pageId, title: entry.title, icon: entry.icon, ...(href ? { href } : {}) };
   });
-  if (new TextEncoder().encode(JSON.stringify(entries)).byteLength > MAX_SERIALIZED_METADATA_BYTES) {
+  if (new TextEncoder().encode(JSON.stringify(normalized)).byteLength > MAX_SERIALIZED_METADATA_BYTES) {
     fail("Metadata exceeds the supported storage size.");
   }
-  return entries;
+  return normalized;
 }
 
 export function validateStorageRequest(message) {

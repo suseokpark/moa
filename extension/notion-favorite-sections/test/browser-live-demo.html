@@ -7,7 +7,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Moa · Live demo</title>
+    <title>FAVMOA · Live demo</title>
     <link rel="stylesheet" href="../src/content.css?v=0.1.9-title-cache" />
     <style>
       :root {
@@ -492,7 +492,7 @@
             <button class="surface-probe" data-fixture-underlay-probe type="button">
               Native surface probe
             </button>
-            <div class="sidebar-footer">Moa · local fixture</div>
+            <div class="sidebar-footer">FAVMOA · local fixture</div>
           </div>
         </div>
       </nav>
@@ -521,9 +521,9 @@
               <li class="demo-step">
                 <span class="step-number">1</span>
                 <span>
-                  <span class="step-title">Moa 열기</span>
+                  <span class="step-title">FAVMOA 열기</span>
                   <span class="step-description">
-                    별도 로그인이나 프로필 선택 없이 수신함 옆 <code>Moa</code>를 눌러
+                    별도 로그인이나 프로필 선택 없이 수신함 옆 <code>FAVMOA</code>를 눌러
                     이 워크스페이스의 정리 화면을 엽니다.
                   </span>
                 </span>
@@ -576,7 +576,7 @@
                   <span class="step-description">
                     상단 <code>현재 열린 페이지</code>에서 Roadmap의 하위 페이지를 펼쳐 보세요.
                     하위 링크를 누르면 이 데모 안에서 현재 페이지가 바뀌며, 즐겨찾기에 담은 상위 경로도 자동으로 펼쳐집니다.
-                    <code>목록 갱신</code>은 Moa가 이미 관리 중인 항목의 상태만
+                    <code>목록 갱신</code>은 FAVMOA가 이미 관리 중인 항목의 상태만
                     갱신합니다. 목록에서 잠시 보이지 않는 항목도 정리한 위치를 유지합니다.
                   </span>
                 </span>
@@ -604,7 +604,7 @@
             <span>복수 선택 후 목적지에 한 번에 추가</span>
             <span>원본 Favorites 항상 유지</span>
             <span>현재 페이지 자동 강조</span>
-            <span>Moa 전용 초기화</span>
+            <span>FAVMOA 전용 초기화</span>
           </div>
         </article>
       </main>
@@ -699,8 +699,8 @@
       };
 
       // The demo exercises the real inline editors; browser dialogs must never be used.
-      window.prompt = () => { throw new Error("Use the Moa inline name form."); };
-      window.confirm = () => { throw new Error("Use the Moa inline confirmation form."); };
+      window.prompt = () => { throw new Error("Use the FAVMOA inline name form."); };
+      window.confirm = () => { throw new Error("Use the FAVMOA inline confirmation form."); };
       const demoOptions = new URLSearchParams(location.search);
       // This local demo alone simulates navigation. Production anchors use
       // native browser navigation and never intercept Notion page clicks.
@@ -806,6 +806,7 @@
         }
       });
     </script>
+    <script src="../src/notion-url.js?v=0.1.18"></script>
     <script src="../src/favorite-tree-model.js?v=0.1.9-title-cache"></script>
     <script src="../src/profile-catalog.js?v=0.1.9-title-cache"></script>
     <script src="../src/notion-sidebar-adapter.js?v=0.1.9-title-cache"></script>

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createHash } from "node:crypto";
+import { createHash, createPublicKey } from "node:crypto";
 import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -67,6 +67,60 @@ function validateIconMap(icons, field, requiredSizes) {
   }
 }
 
+// Chrome's unpacked-extension ID comes from the DER SubjectPublicKeyInfo
+// bytes, not the installation path, when manifest.key is present. Never accept
+// a private key or silently canonicalize a malformed/different representation.
+export function deriveExtensionIdentity(publicKey) {
+  if (
+    typeof publicKey !== "string" ||
+    publicKey.length < 256 ||
+    publicKey.length > 8192 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/u.test(publicKey)
+  ) {
+    fail("manifest.key must be a canonical base64 DER SPKI public key.");
+  }
+  const der = Buffer.from(publicKey, "base64");
+  if (der.toString("base64") !== publicKey) {
+    fail("manifest.key must be a canonical base64 DER SPKI public key.");
+  }
+  let key;
+  try {
+    key = createPublicKey({ key: der, format: "der", type: "spki" });
+  } catch {
+    fail("manifest.key must contain a valid DER SPKI public key, never a private key.");
+  }
+  if (
+    key.asymmetricKeyType !== "rsa" ||
+    !Number.isInteger(key.asymmetricKeyDetails?.modulusLength) ||
+    key.asymmetricKeyDetails.modulusLength < 2048
+  ) {
+    fail("manifest.key must be an RSA public key with at least 2048 bits.");
+  }
+  if (!key.export({ format: "der", type: "spki" }).equals(der)) {
+    fail("manifest.key must contain only canonical DER SPKI public-key bytes.");
+  }
+  const publicKeySha256 = createHash("sha256").update(der).digest("hex");
+  const extensionId = publicKeySha256.slice(0, 32).replace(/[0-9a-f]/gu,
+    (hex) => String.fromCharCode("a".charCodeAt(0) + Number.parseInt(hex, 16)));
+  return { extensionId, publicKeySha256 };
+}
+
+function validateIdentityPin(pin, identity) {
+  if (
+    !pin || typeof pin !== "object" || Array.isArray(pin) ||
+    Object.keys(pin).length !== 3 ||
+    Object.keys(pin).some((key) => !["schemaVersion", "extensionId", "publicKeySha256"].includes(key)) ||
+    pin.schemaVersion !== 1 ||
+    !/^[a-p]{32}$/u.test(pin.extensionId || "") ||
+    !/^[a-f0-9]{64}$/u.test(pin.publicKeySha256 || "")
+  ) {
+    fail("extension-identity.json must pin schemaVersion 1, extensionId, and publicKeySha256.");
+  }
+  if (pin.extensionId !== identity.extensionId || pin.publicKeySha256 !== identity.publicKeySha256) {
+    fail("manifest.key does not match the pinned extension identity. Do not rotate the key without an explicit identity migration and OAuth/data review.");
+  }
+}
+
 function validateManifest(manifest) {
   if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)) {
     fail("manifest.json must contain an object.");
@@ -74,30 +128,34 @@ function validateManifest(manifest) {
   if (manifest.manifest_version !== 3) {
     fail("manifest_version must be 3.");
   }
-  if (manifest.name !== "Moa") {
-    fail("manifest name must be Moa.");
+  if (manifest.name !== "FAVMOA") {
+    fail("manifest name must be FAVMOA.");
   }
   if (!/^\d+\.\d+\.\d+(?:\.\d+)?$/u.test(manifest.version || "")) {
     fail("manifest version must contain three or four numeric components.");
   }
-  if (!/^\d+$/u.test(manifest.minimum_chrome_version || "") || Number(manifest.minimum_chrome_version) < 111) {
-    fail("minimum_chrome_version must be at least 111 for color-mix support.");
+  if (!/^\d+$/u.test(manifest.minimum_chrome_version || "") || Number(manifest.minimum_chrome_version) < 116) {
+    fail("minimum_chrome_version must be at least 116 for the side panel API.");
   }
   if (manifest.action?.default_title !== manifest.name) {
     fail("action.default_title must match the manifest name.");
   }
   validateIconMap(manifest.icons, "icons", ["16", "32", "48", "128"]);
   validateIconMap(manifest.action?.default_icon, "action.default_icon", ["16", "32"]);
-  if (
-    !Array.isArray(manifest.permissions) ||
-    manifest.permissions.length !== 1 ||
-    manifest.permissions[0] !== "storage"
-  ) {
-    fail("the only explicit permission must be storage.");
+  const exactList = (actual, expected) => Array.isArray(actual) &&
+    actual.length === expected.length && new Set(actual).size === actual.length &&
+    expected.every((permission) => actual.includes(permission));
+  if (!exactList(manifest.permissions, ["storage", "sidePanel", "tabs"])) {
+    fail("explicit permissions must be exactly storage, sidePanel, tabs for the local-only release.");
+  }
+  if (!exactList(manifest.optional_permissions, ["bookmarks"])) {
+    fail("the only optional permission must be bookmarks.");
+  }
+  if (manifest.side_panel?.default_path !== "sidepanel/sidepanel.html" || manifest.action?.default_popup) {
+    fail("the toolbar action must open the packaged side panel without a default popup.");
   }
   for (const field of [
-    "host_permissions", "optional_permissions", "optional_host_permissions",
-    "oauth2", "externally_connectable", "web_accessible_resources"
+    "host_permissions", "oauth2", "optional_host_permissions", "externally_connectable", "web_accessible_resources", "content_scripts"
   ]) {
     if (Object.prototype.hasOwnProperty.call(manifest, field)) {
       fail(`${field} must remain absent.`);
@@ -110,30 +168,13 @@ function validateManifest(manifest) {
   ) {
     fail("a module service worker is required.");
   }
-  if (!Array.isArray(manifest.content_scripts) || manifest.content_scripts.length !== 1) {
-    fail("exactly one content script declaration is required.");
-  }
-  const [contentScript] = manifest.content_scripts;
-  if (
-    !Array.isArray(contentScript.matches) ||
-    contentScript.matches.length !== 1 ||
-    contentScript.matches[0] !== "https://app.notion.com/*"
-  ) {
-    fail("content scripts must be limited to https://app.notion.com/*.");
-  }
-  if (contentScript.all_frames || contentScript.match_about_blank || contentScript.match_origin_as_fallback) {
-    fail("content scripts must only run in the matched top-level Notion document.");
-  }
-  if (contentScript.world && contentScript.world !== "ISOLATED") {
-    fail("content scripts must use the isolated world.");
-  }
-
   return manifest;
 }
 
 function manifestReferences(manifest) {
   const references = [manifest.background.service_worker];
   if (manifest.action?.default_popup) references.push(manifest.action.default_popup);
+  if (manifest.side_panel?.default_path) references.push(manifest.side_panel.default_path);
 
   for (const contentScript of manifest.content_scripts || []) {
     references.push(...(contentScript.js || []), ...(contentScript.css || []));
@@ -159,6 +200,13 @@ function htmlReferences(source) {
     /<link\b[^>]*\bhref=["']([^"']+)["'][^>]*>/giu
   ]) {
     for (const match of source.matchAll(pattern)) references.push(match[1]);
+  }
+  // Keep local help pages reachable from the side panel in the archive, without
+  // treating ordinary external navigation links as bundled runtime resources.
+  for (const match of source.matchAll(/<a\b[^>]*\bhref=["']([^"']+)["'][^>]*>/giu)) {
+    const href = match[1];
+    if (href.startsWith("#") || /^(?:https?:|mailto:)/iu.test(href)) continue;
+    references.push(href);
   }
   return references;
 }
@@ -207,6 +255,15 @@ export async function collectPackageEntries({ extensionRoot = EXTENSION_ROOT } =
     if (error instanceof SyntaxError) fail(`manifest.json is invalid JSON: ${error.message}`);
     throw error;
   }
+  const identity = deriveExtensionIdentity(manifest.key);
+  const pinBuffer = await readPackageFile(normalizedRoot, "extension-identity.json");
+  let pin;
+  try {
+    pin = JSON.parse(pinBuffer.toString("utf8"));
+  } catch {
+    fail("extension-identity.json must contain valid JSON.");
+  }
+  validateIdentityPin(pin, identity);
 
   const queued = ["manifest.json"];
   const discovered = new Set(queued);
@@ -239,9 +296,26 @@ export async function collectPackageEntries({ extensionRoot = EXTENSION_ROOT } =
     for (const reference of references) addReference(reference, packagePath);
   }
 
+  const featureFlags = fileData.get("src/feature-flags.js")?.toString("utf8") || "";
+  if (!/^export const CLOUD_ENABLED = false;$/mu.test(featureFlags)) {
+    fail("the local-only release must package CLOUD_ENABLED = false.");
+  }
+  for (const deferredPath of ["src/cloud-client.js", "src/google-drive-cloud.js", "src/connection-view.js", "config/google-cloud.deferred.json"]) {
+    if (fileData.has(deferredPath)) fail(`${deferredPath} is deferred source and must not be reachable in the local-only package.`);
+  }
+  if ([...fileData.keys()].some(packagePath => /^(?:test|test-support)\//u.test(packagePath))) {
+    fail("test fixtures must not be reachable in the release package.");
+  }
+  // Historical sources remain in the repository for data-format regression
+  // coverage, but the retired Notion UI must never re-enter a release bundle.
+  for (const retiredPath of ["src/content.js", "src/content.css", "src/notion-tree-panel.js", "src/notion-sidebar-adapter.js", "src/favorite-tree-view.js", "src/favorite-tree-model.js", "src/profile-catalog.js"]) {
+    if (fileData.has(retiredPath)) fail(`${retiredPath} is retired source and must not be reachable in the side-panel-only package.`);
+  }
+
   const paths = [...fileData.keys()].sort(comparePackagePaths);
   return {
     manifest,
+    identity,
     entries: paths.map((packagePath) => ({
       path: packagePath,
       data: fileData.get(packagePath)
@@ -342,7 +416,7 @@ export async function buildExtensionPackage({
       path.join(
         REPOSITORY_ROOT,
         "artifacts",
-        `moa-v${collected.manifest.version}.zip`
+        `favmoa-v${collected.manifest.version}.zip`
       )
   );
   const archive = createZip(collected.entries);
@@ -353,7 +427,8 @@ export async function buildExtensionPackage({
     sha256: createHash("sha256").update(archive).digest("hex"),
     size: archive.length,
     entries: collected.entries.map((entry) => entry.path),
-    version: collected.manifest.version
+    version: collected.manifest.version,
+    ...collected.identity
   };
 }
 
@@ -362,7 +437,7 @@ export async function verifyExtensionPackage({
   artifactPath
 } = {}) {
   if (!artifactPath) fail("an artifact path is required for verification.");
-  const { manifest, entries } = await collectPackageEntries({ extensionRoot });
+  const { manifest, entries, identity } = await collectPackageEntries({ extensionRoot });
   const expected = createZip(entries);
   const resolvedPath = path.resolve(artifactPath);
   const actual = await readFile(resolvedPath);
@@ -372,6 +447,7 @@ export async function verifyExtensionPackage({
   return {
     artifactPath: resolvedPath,
     version: manifest.version,
+    ...identity,
     sha256: createHash("sha256").update(actual).digest("hex"),
     entries: entries.map((entry) => entry.path)
   };
@@ -414,20 +490,23 @@ async function main() {
 
   if (artifactPath) {
     const result = await verifyExtensionPackage({ artifactPath });
-    console.log(`Artifact matches current source: Moa v${result.version}, ${result.entries.length} files.`);
+    console.log(`Artifact matches current source: FAVMOA v${result.version}, ${result.entries.length} files.`);
+    console.log(`Extension ID ${result.extensionId}`);
     console.log(`SHA-256 ${result.sha256}`);
     return;
   }
 
   if (checkOnly) {
-    const { manifest, entries } = await collectPackageEntries();
-    console.log(`Package integrity OK: Moa v${manifest.version}, ${entries.length} files.`);
+    const { manifest, entries, identity } = await collectPackageEntries();
+    console.log(`Package integrity OK: FAVMOA v${manifest.version}, ${entries.length} files.`);
+    console.log(`Extension ID ${identity.extensionId}`);
     for (const entry of entries) console.log(entry.path);
     return;
   }
 
   const result = await buildExtensionPackage({ outputPath });
   console.log(`Created ${result.outputPath}`);
+  console.log(`Extension ID ${result.extensionId}`);
   console.log(`SHA-256 ${result.sha256}`);
   console.log(`Size ${result.size} bytes`);
   for (const entry of result.entries) console.log(entry);

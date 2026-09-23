@@ -230,7 +230,7 @@
       !host.ownerDocument ||
       !host.style
     ) {
-      throw new TypeError("Moa panel requires a trigger host element.");
+      throw new TypeError("FAVMOA panel requires a trigger host element.");
     }
     if (
       !viewHost ||
@@ -238,7 +238,7 @@
       viewHost.ownerDocument !== host.ownerDocument ||
       !viewHost.style
     ) {
-      throw new TypeError("Moa panel requires an internal view host element.");
+      throw new TypeError("FAVMOA panel requires an internal view host element.");
     }
     if (
       options.onOpenChange !== undefined &&
@@ -269,15 +269,15 @@
       className: "ntree-trigger",
       attributes: {
         type: "button",
-        title: "Moa · 즐겨찾기 정리",
-        "aria-label": "Moa",
+        title: "FAVMOA · 즐겨찾기 정리",
+        "aria-label": "FAVMOA",
         "aria-expanded": "false"
       }
     });
     const triggerIcon = namespace.brand.createIcon(documentRef, { className: "ntree-trigger-icon" });
     const triggerLabel = element(documentRef, "span", {
       className: "ntree-trigger-label",
-      text: "Moa"
+      text: "FAVMOA"
     });
     trigger.append(triggerIcon, triggerLabel);
 
@@ -297,7 +297,7 @@
     });
     const title = element(documentRef, "div", {
       className: "ntree-panel-title",
-      text: "Moa",
+      text: "FAVMOA",
       attributes: { id: titleId }
     });
     const closeButton = element(documentRef, "button", {
@@ -305,8 +305,8 @@
       text: "×",
       attributes: {
         type: "button",
-        title: "Moa 닫기",
-        "aria-label": "Moa 패널 닫기"
+        title: "FAVMOA 닫기",
+        "aria-label": "FAVMOA 패널 닫기"
       }
     });
     const scrollShell = element(documentRef, "div", {
@@ -316,7 +316,7 @@
       className: "ntree-content-host",
       attributes: {
         "data-notion-tree-panel-content-host": "",
-        "aria-label": "Moa 즐겨찾기 트리"
+        "aria-label": "FAVMOA 즐겨찾기 트리"
       }
     });
 
@@ -409,7 +409,7 @@
       try {
         onOpenChange(openState);
       } catch (error) {
-        globalScope.console?.warn?.("Moa panel callback failed.", error);
+        globalScope.console?.warn?.("FAVMOA panel callback failed.", error);
       }
     }
 

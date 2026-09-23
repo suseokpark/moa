@@ -5,9 +5,9 @@ import "../src/moa-brand.js";
 
 const { brand } = globalThis.NotionFavoriteSections;
 
-test("Moa brand has immutable approved colors and three simple mark shapes", () => {
-  assert.equal(brand.name, "Moa");
-  assert.equal(brand.koreanName, "모아");
+test("FAVMOA brand has immutable approved colors and three simple mark shapes", () => {
+  assert.equal(brand.name, "FAVMOA");
+  assert.equal(brand.koreanName, "팹모아");
   assert.deepEqual(brand.colors, { ink: "#164C45", mint: "#A3D9C5", paper: "#F6F3EC" });
   assert.equal(brand.shapes.length, 3);
   assert.ok([brand, brand.colors, brand.shapes, ...brand.shapes].every(Object.isFrozen));
@@ -19,7 +19,7 @@ test("popup SVG is exactly the shared mark export, without remote references", a
   assert.doesNotMatch(mark, /<(?:script|image|foreignObject)|(?:href|onload)=/iu);
   assert.equal((mark.match(/<path /gu) || []).length, 3);
   const popup = await readFile(new URL("../popup/popup.html", import.meta.url), "utf8");
-  assert.match(popup, /<title>Moa<\/title>/u);
+  assert.match(popup, /<title>FAVMOA<\/title>/u);
   assert.match(popup, /<img src="\.\.\/icons\/moa-mark\.svg"[^>]+alt=""/u);
   assert.doesNotMatch(popup, /\b(?:Link|NTree|Notion Tree)\b/u);
 });

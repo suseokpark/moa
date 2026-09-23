@@ -45,7 +45,9 @@ async function background(t) {
     } }
   };
   t.after(() => { delete globalThis.chrome; });
-  await import(`../src/background.js?metadata-test=${++harnessSequence}`);
+  // Historical cache contracts remain covered without enabling the retired
+  // content-script service in the shipped browser-only worker.
+  await import(`../test-support/legacy-notion-background.js?metadata-test=${++harnessSequence}`);
   connect({ name: "NFS_WORKSPACE_SYNC", sender, postMessage(message) { broadcasts.push(structuredClone(message)); }, disconnect() {}, onDisconnect: { addListener() {} } });
   function request(type, payload, requestSender = sender) {
     return new Promise(resolve => listener({ type, payload }, requestSender, resolve));
@@ -104,6 +106,70 @@ test("display metadata persists separately, merges omitted entries and skips unc
   assert.deepEqual(h.values.get("nfs:metadata:alpha"), [renamed, ENTRY_B]);
   assert.deepEqual(await h.request("NFS_STORAGE_GET", { workspaceKey: "alpha" }), { ok: true, revision: 1, workspace: workspace() });
   assert.equal(h.broadcasts.length, 1);
+});
+
+test("managed metadata stores and restores its validated workspace route without changing tree revision", async t => {
+  const h = await background(t);
+  await h.set("alpha", [PAGE_A]);
+  const routed = { ...ENTRY_A, href: `https://app.notion.com/p/alpha/${PAGE_A}?pvs=4#notes` };
+  assert.deepEqual(await h.merge("alpha", [routed]), { ok: true, metadata: [routed] });
+  assert.deepEqual(await h.get("alpha"), { ok: true, metadata: [routed] });
+  assert.deepEqual(h.values.get("nfs:metadata:alpha"), [routed]);
+  assert.equal(h.values.get("nfs:workspace:alpha").revision, 1);
+  assert.deepEqual(h.values.get("nfs:workspace:alpha").workspace, workspace([PAGE_A]));
+});
+
+test("metadata merges keep an observed scoped route when later tabs omit it or send an ID-only address", async t => {
+  const h = await background(t);
+  await h.set("alpha", [PAGE_A]);
+  const href = `https://app.notion.com/p/alpha/${PAGE_A}`;
+  await h.merge("alpha", [{ ...ENTRY_A, href }]);
+  const updated = { ...ENTRY_A, title: "Updated label" };
+  assert.deepEqual((await h.merge("alpha", [updated])).metadata, [{ ...updated, href }]);
+  assert.deepEqual((await h.merge("alpha", [{ ...updated, href: `https://app.notion.com/${PAGE_A}` }])).metadata, [{ ...updated, href }]);
+  const newer = `https://app.notion.com/p/renamed-workspace/${PAGE_A}`;
+  assert.deepEqual((await h.merge("alpha", [{ ...updated, href: newer }])).metadata, [{ ...updated, href: newer }]);
+  assert.equal(h.values.get("nfs:workspace:alpha").revision, 1);
+});
+
+test("metadata route validation rejects untrusted, mismatched, relative and oversized addresses atomically", async t => {
+  const h = await background(t);
+  await h.set("alpha", [PAGE_A]);
+  const saved = { ...ENTRY_A, href: `https://app.notion.com/p/alpha/${PAGE_A}` };
+  await h.merge("alpha", [saved]);
+  const count = h.writes.length;
+  for (const href of [
+    `http://app.notion.com/${PAGE_A}`, `https://www.notion.so/${PAGE_A}`, `https://evil.example/${PAGE_A}`,
+    `https://app.notion.com.evil.example/${PAGE_A}`, `https://user:secret@app.notion.com/${PAGE_A}`,
+    `https://app.notion.com:444/${PAGE_A}`, `https://app.notion.com/${PAGE_B}`,
+    `https://app.notion.com/?p=${PAGE_A}`, `/p/alpha/${PAGE_A}`, `?p=${PAGE_A}`,
+    `https://app.notion.com/p/alpha%2Fescape/${PAGE_A}`, `https://app.notion.com/%ZZ/${PAGE_A}`,
+    `https://app.notion.com/p/alpha/${PAGE_A}\u0085`, `https://app.notion.com/${PAGE_A}?long=${"x".repeat(4096)}`,
+    "", null, undefined
+  ]) {
+    const result = await h.merge("alpha", [{ ...ENTRY_A, href }]);
+    assert.equal(result.ok, false, String(href));
+    assert.deepEqual((await h.get("alpha")).metadata, [saved]);
+  }
+  assert.equal(h.writes.length, count);
+});
+
+test("cached routes remain workspace-scoped, managed-only, and are pruned on removal and reset", async t => {
+  const h = await background(t);
+  await h.set("alpha", [PAGE_A]);
+  await h.set("beta", [PAGE_A]);
+  const alpha = { ...ENTRY_A, href: `https://app.notion.com/p/alpha/${PAGE_A}` };
+  const beta = { ...ENTRY_A, href: `https://app.notion.com/p/beta/${PAGE_A}` };
+  const orphan = { ...ENTRY_B, href: `https://app.notion.com/p/alpha/${PAGE_B}` };
+  assert.deepEqual((await h.merge("alpha", [alpha, orphan])).metadata, [alpha]);
+  assert.deepEqual((await h.merge("beta", [beta])).metadata, [beta]);
+  assert.deepEqual((await h.get("alpha")).metadata, [alpha]);
+  assert.deepEqual((await h.get("beta")).metadata, [beta]);
+  await h.set("alpha", [], 1);
+  assert.deepEqual((await h.merge("alpha", [alpha])).metadata, []);
+  assert.deepEqual((await h.get("beta")).metadata, [beta]);
+  assert.equal((await h.request("NFS_STORAGE_RESET", { workspaceKey: "beta" })).ok, true);
+  assert.deepEqual((await h.get("beta")).metadata, []);
 });
 
 test("successful tree changes prune removed labels and queued late merges cannot restore them", async t => {

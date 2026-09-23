@@ -4,7 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 
 const sources = await Promise.all([
-  "favorite-tree-model.js", "profile-catalog.js", "content.js", "favorite-tree-view.js"
+  "favorite-tree-model.js", "profile-catalog.js", "content.js", "favorite-tree-view.js", "notion-url.js"
 ].map((name) => readFile(new URL(`../src/${name}`, import.meta.url), "utf8")));
 const PAGE_A = "0123456789abcdef0123456789abcdef";
 const PAGE_B = "fedcba9876543210fedcba9876543210";
@@ -164,6 +164,7 @@ async function harness({
       }
     } }
   });
+  vm.runInContext(sources[4], context);
   vm.runInContext(sources[0], context);
   vm.runInContext(sources[1], context);
   const namespace = context.NotionFavoriteSections;
@@ -341,8 +342,8 @@ test("a cold start without loaded page metadata preserves saved references witho
   assert.equal(h.ui.value.importPreview.canManage, false);
   assert.equal(h.ui.value.importPreview.sourceCount, 0);
   assert.match(renderedFavorite(h, PAGE_A).title, new RegExp(PAGE_A.slice(-6), "u"));
-  assert.equal(renderedFavorite(h, PAGE_A).href, `https://app.notion.com/${PAGE_A}`,
-    "a saved normalized page ID remains navigable before its title is recovered");
+  assert.equal(renderedFavorite(h, PAGE_A).href, null,
+    "a saved page ID alone must not fabricate an unknown page route");
   await assert.rejects(h.ui.callbacks.onRefreshManagedFavorites(), /안전하게 확인하지 못해/u);
   assert.equal(h.writes.length, 0);
 });
@@ -359,14 +360,78 @@ test("known managed titles survive a fresh controller when the source starts col
   assert.equal(first.writes.length + restarted.writes.length, 0,
     "display metadata does not change the saved tree or its revision");
   for (const entry of first.metadataRecords.get(KEY) || []) {
-    assert.deepEqual(Object.keys(entry).sort(), ["icon", "pageId", "title"]);
+    assert.deepEqual(Object.keys(entry).sort(), ["href", "icon", "pageId", "title"]);
   }
+});
+
+test("observed managed routes survive a collapsed-source restart without becoming import candidates", async () => {
+  const title = "워크스페이스 경로가 있는 문서";
+  const href = `https://app.notion.com/p/another-workspace/${PAGE_A}?pvs=4#notes`;
+  const first = await harness({ seed: withFavorite, pageIds: [PAGE_A],
+    favoriteMetadata: { [PAGE_A]: { title, href, iconText: "📚" } } });
+  assert.equal(first.metadataRecords.get(KEY)[0].href, href);
+  const restarted = await harness({ seed: () => first.stored.workspace,
+    metadataRecords: first.metadataRecords, sourceSafe: false, pageIds: [] });
+  assert.equal(restarted.ui.value.favoriteMetadata[0].href, href);
+  assert.deepEqual(copy(restarted.ui.value.favorites), []);
+  assert.equal(restarted.ui.value.importPreview.canManage, false);
+  assert.equal(first.writes.length + restarted.writes.length, 0);
+  assert.equal(restarted.stored.revision, first.stored.revision);
+});
+
+test("actual current-page route wins stale native metadata and survives later partial refreshes", async () => {
+  const href = `https://app.notion.com/p/current-workspace/${PAGE_A}?pvs=4#notes`;
+  const currentPage = { ...pageNode(PAGE_A, "Current title"), href };
+  const h = await harness({ seed: withFavorite, pageIds: [PAGE_A], activePageId: PAGE_A,
+    favoriteMetadata: { [PAGE_A]: { title: "Old native title", href: `https://app.notion.com/p/old-workspace/${PAGE_A}` } },
+    pageNavigation: navigationFor(currentPage) });
+  h.native.href = href;
+  await h.refresh();
+  assert.equal(h.metadataRecords.get(KEY)[0].href, href);
+  assert.equal(h.metadataRecords.get(KEY)[0].title, "Current title");
+  h.native.pageNavigation = { currentPage: null, roots: [], renderedOnly: true, scopeSafe: false, reason: "collapsed" };
+  h.native.favoriteMetadata[PAGE_A] = { title: "Updated native title", href: `https://app.notion.com/${PAGE_A}` };
+  await h.refresh();
+  assert.equal(h.metadataRecords.get(KEY)[0].href, href);
+  h.native.favoriteMetadata[PAGE_A] = { title: "Title only" };
+  await h.refresh();
+  assert.equal(h.metadataRecords.get(KEY)[0].href, href);
+  assert.equal(h.metadataRecords.get(KEY)[0].title, "Title only");
+  assert.equal(h.writes.length, 0);
+});
+
+test("a title-less current page can refresh its observed route without erasing a known managed title", async () => {
+  const previousHref = `https://app.notion.com/p/old-workspace/${PAGE_A}`;
+  const href = `https://app.notion.com/p/renamed-workspace/${PAGE_A}`;
+  const h = await harness({ seed: withFavorite, pageIds: [PAGE_A], activePageId: PAGE_A,
+    favoriteMetadata: { [PAGE_A]: { title: "Known title", href: previousHref, icon: "📘" } } });
+  h.native.href = href;
+  h.native.pageIds = [];
+  h.native.safe = false;
+  h.native.pageNavigation = navigationFor({ ...pageNode(PAGE_A, "현재 열린 페이지"), href, icon: null });
+  await h.refresh();
+  assert.deepEqual(h.metadataRecords.get(KEY), [{ pageId: PAGE_A, title: "Known title", icon: "📘", href }]);
+  assert.equal(h.writes.length, 0);
+});
+
+test("loading another tab's cached route upgrades an in-memory title-only entry", async () => {
+  const h = await harness({ seed: withFavorite, pageIds: [PAGE_A], workspaceSync: true,
+    favoriteMetadata: { [PAGE_A]: { title: "Live title" } } });
+  const href = `https://app.notion.com/p/known-workspace/${PAGE_A}`;
+  h.metadataRecords.set(KEY, [{ pageId: PAGE_A, title: "Cached title", icon: "", href }]);
+  h.native.pageIds = [];
+  h.native.safe = false;
+  await h.syncFromOtherTab(withFavorite(h.model));
+  assert.equal(h.ui.value.favoriteMetadata[0].href, href);
+  assert.equal(h.ui.value.favoriteMetadata[0].title, "Live title");
+  assert.equal(h.writes.length, 0);
 });
 
 test("managed title cache never leaks a previous workspace title for the same page ID", async () => {
   const title = "이전 워크스페이스에서만 본 제목";
+  const href = `https://app.notion.com/p/previous-workspace/${PAGE_A}`;
   const h = await harness({ seed: withFavorite, realView: true, pageIds: [PAGE_A],
-    favoriteMetadata: { [PAGE_A]: { title, href: `https://app.notion.com/${PAGE_A}` } } });
+    favoriteMetadata: { [PAGE_A]: { title, href } } });
   assert.equal(renderedFavorite(h, PAGE_A).title, title);
   const otherKey = "workspace:id:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
   h.records.set(otherKey, { workspace: copy(withFavorite(h.model)), revision: 1 });
@@ -376,6 +441,8 @@ test("managed title cache never leaks a previous workspace title for the same pa
   h.native.pageIds = [];
   await h.refresh();
   assert.notEqual(renderedFavorite(h, PAGE_A).title, title);
+  assert.notEqual(renderedFavorite(h, PAGE_A).href, href);
+  assert.equal(h.ui.value.favoriteMetadata.some(entry => entry.href === href), false);
   assert.equal(h.ui.value.importPreview.canManage, false);
   assert.equal(h.writes.length, 0);
 });

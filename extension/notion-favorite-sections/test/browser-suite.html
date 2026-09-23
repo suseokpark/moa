@@ -1,9 +1,9 @@
 <!doctype html>
 <html lang="ko">
 <meta charset="utf-8">
-<title>Moa 브라우저 검증</title>
+<title>FAVMOA 브라우저 검증</title>
 <style>body{font:15px system-ui;max-width:1100px;margin:24px auto;padding:0 20px}iframe{width:100%;height:850px;border:1px solid #ddd;border-radius:8px}li{padding:7px}button{padding:9px 14px}pre{white-space:pre-wrap;color:#444}.pass{color:#16713b}.fail{color:#b42318}</style>
-<h1>Moa 0.1.9 브라우저 검증</h1>
+<h1>FAVMOA 0.1.18 브라우저 검증</h1>
 <p>실제 화면 코드와 로컬 테스트 저장소로 8개 시나리오를 실행합니다. 실제 Notion 계정 데이터에는 접근하지 않습니다.</p>
 <button id="run">전체 검사 실행</button><ol id="results"></ol><iframe title="검사 중인 화면"></iframe>
 <script>
@@ -16,6 +16,6 @@ run.onclick=async()=>{run.disabled=true;results.replaceChildren();let failures=0
   const pass=state==='pass';if(!pass)failures++;row.className=pass?'pass':'fail';row.textContent=name+' — '+(pass?'통과':'실패');
   if(!pass){const detail=document.createElement('pre');detail.textContent=frame.contentDocument.querySelector('#smoke-result,#result')?.textContent||frame.contentDocument.body.innerText;row.append(detail);}
  }
- document.body.dataset.smoke=failures?'fail':'pass';document.title=failures?'FAIL: Moa browser suite':`PASS ${suites.length}/${suites.length}: Moa browser suite`;run.disabled=false;};
+ document.body.dataset.smoke=failures?'fail':'pass';document.title=failures?'FAIL: FAVMOA browser suite':`PASS ${suites.length}/${suites.length}: FAVMOA browser suite`;run.disabled=false;};
 </script>
 </html>

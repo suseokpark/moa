@@ -2,6 +2,7 @@
   "use strict";
 
   const NOTION_ORIGIN = "https://app.notion.com";
+  const urls = root.NotionFavoriteSections.urls;
   const HOST_ATTRIBUTE = "data-notion-favorite-sections-host";
   const HIDDEN_ROW_ATTRIBUTE = "data-notion-favorite-sections-native-hidden";
   const PRIMARY_NAV_HOST_ATTRIBUTE = "data-notion-tree-primary-navigation-host";
@@ -9,7 +10,6 @@
     "data-notion-tree-primary-navigation-view-host";
   const PAGE_ID_SOURCE =
     "(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})";
-  const PAGE_ID_EXACT = new RegExp(`^${PAGE_ID_SOURCE}$`, "i");
   const PAGE_ID_SUFFIX = new RegExp(`(?:^|[-_])(${PAGE_ID_SOURCE})$`, "i");
   const SINGLE_EMOJI = /^(?:\p{Regional_Indicator}{2}|[#*0-9]\uFE0F?\u20E3|\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?\p{Emoji_Modifier}?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?\p{Emoji_Modifier}?)*(?:[\u{E0020}-\u{E007E}]+\u{E007F})?)$/u;
   const FAVORITES_HEADING = /^(?:favorites?|favourites?|즐겨찾기)(?:\s*(?:\(\d+\)|\d+))?$/iu;
@@ -46,11 +46,7 @@
   const primaryNavigationViewHosts = new Set();
 
   function normalizePageId(value) {
-    if (typeof value !== "string") return null;
-
-    const candidate = value.trim();
-    if (!PAGE_ID_EXACT.test(candidate)) return null;
-    return candidate.replaceAll("-", "").toLowerCase();
+    return urls.normalizePageId(value);
   }
 
   function toUrl(value, base) {
@@ -72,36 +68,11 @@
   }
 
   function pageIdFromUrl(url) {
-    if (
-      !url ||
-      url.protocol !== "https:" ||
-      url.origin !== NOTION_ORIGIN ||
-      url.username ||
-      url.password
-    ) {
-      return null;
-    }
-
-    const segments = url.pathname.split("/").filter(Boolean);
-    if (segments.length === 0) return null;
-
-    let finalSegment;
-    try {
-      finalSegment = decodeURIComponent(segments.at(-1));
-    } catch {
-      return null;
-    }
-
-    if (!finalSegment || finalSegment.includes("/") || finalSegment.includes("\\")) {
-      return null;
-    }
-
-    const match = finalSegment.match(PAGE_ID_SUFFIX);
-    return match ? normalizePageId(match[1]) : null;
+    return urls.extractPageId(url);
   }
 
   function extractPageId(href, base) {
-    return pageIdFromUrl(toUrl(href, base));
+    return urls.extractPageId(href, base);
   }
 
   function isAllowedNotionUrl(href, base) {
@@ -124,8 +95,7 @@
   }
 
   function safeAbsoluteNotionUrl(href, base) {
-    const url = toUrl(href, base);
-    return pageIdFromUrl(url) ? url.href : null;
+    return urls.safePageUrl(href, { base });
   }
 
   function normalizeFavorite(candidate) {
@@ -138,7 +108,7 @@
     if (!pageId) return null;
 
     const safeUrl = candidateUrl
-      ? safeAbsoluteNotionUrl(candidateUrl, candidate.base)
+      ? urls.safePageUrl(candidateUrl, { base: candidate.base, pageId })
       : null;
 
     return {
@@ -168,10 +138,8 @@
       }
 
       if (!existing.title && favorite.title) existing.title = favorite.title;
-      if (!existing.url && favorite.url) {
-        existing.url = favorite.url;
-        existing.href = favorite.href;
-      }
+      existing.url = urls.preferredPageUrl(favorite.pageId, [existing.url, favorite.url]);
+      existing.href = existing.url;
       if (!existing.icon && favorite.icon) existing.icon = favorite.icon;
     }
 
@@ -2009,6 +1977,10 @@
         return;
       }
       if (!nodes.has(node.pageId)) nodes.set(node.pageId, node);
+      else {
+        const existing = nodes.get(node.pageId);
+        existing.href = urls.preferredPageUrl(node.pageId, [existing.href, node.href]);
+      }
       if (!childrenById.has(node.pageId)) childrenById.set(node.pageId, new Set());
       if (parentId) {
         const previousParent = parentById.get(node.pageId);
@@ -2091,9 +2063,14 @@
       return null;
     };
     if (currentId) {
+      const documentHref = pageHrefFromLocation(documentLike);
+      const currentHref = extractPageId(documentHref) === currentId ? documentHref : null;
       currentPage = findCurrent(merged.roots);
+      // Native rows and cached labels can carry older, ID-only routes. The
+      // actual current URL is authoritative only for this same validated page.
+      if (currentPage && currentHref) currentPage = { ...currentPage, href: currentHref };
       if (!currentPage) {
-        // Saved favorites provide labels only, never parent/child relationships.
+        // Saved favorites provide labels/validated URLs, never relationships.
         const saved = Array.isArray(options.favorites)
           ? options.favorites.find((favorite) => {
             if (normalizePageId(favorite?.pageId) !== currentId) return false;
@@ -2104,7 +2081,7 @@
         currentPage = {
           pageId: currentId,
           title: currentDocumentPageTitle(documentLike, currentId) || normalizeTitle(saved?.title) || "현재 열린 페이지",
-          href: `${NOTION_ORIGIN}/${currentId}`,
+          href: currentHref || urls.safePageUrl(saved?.href || saved?.url, { pageId: currentId }),
           icon: typeof saved?.icon === "string" ? saved.icon : null,
           children: [],
         };
@@ -2218,14 +2195,18 @@
     return root.location || null;
   }
 
-  function activePageId(documentOrLocation, explicitLocation) {
+  function pageHrefFromLocation(documentOrLocation, explicitLocation) {
     const locationLike = locationFromInputs(documentOrLocation, explicitLocation);
     const href =
       locationLike?.href ||
       (locationLike?.origin && locationLike?.pathname
         ? `${locationLike.origin}${locationLike.pathname}${locationLike.search || ""}${locationLike.hash || ""}`
         : null);
-    return href ? extractPageId(href) : null;
+    return href ? safeAbsoluteNotionUrl(href) : null;
+  }
+
+  function activePageId(documentOrLocation, explicitLocation) {
+    return extractPageId(pageHrefFromLocation(documentOrLocation, explicitLocation));
   }
 
   function normalizeWorkspaceSlug(value) {

@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="ko">
 <meta charset="utf-8">
-<title>Moa title cache regression</title>
+<title>FAVMOA title cache regression</title>
 <style>body{font:14px system-ui;margin:16px}iframe{width:100%;height:800px;border:1px solid #ddd}pre{white-space:pre-wrap}</style>
 <pre id="result">RUNNING</pre><iframe title="즐겨찾기 제목 복원 검사" src="browser-live-demo.html"></iframe>
 <script>
@@ -15,23 +15,26 @@
   const favorite=()=>deep(`.nfs-favorite[data-page-id="${id}"]`);
   const click=selector=>{const button=deep(selector);check(button,`Missing ${selector}`);button.click();};
   try {
-    await wait(()=>frame.contentWindow.NotionFavoriteSections?.content?.started && deep('button[aria-label="Moa"]'));
+    await wait(()=>frame.contentWindow.NotionFavoriteSections?.content?.started && deep('button[aria-label="FAVMOA"]'));
     const win=frame.contentWindow, doc=frame.contentDocument;
-    click('button[aria-label="Moa"]');
+    const expectedHref = `https://app.notion.com/p/another-workspace/Decisions_${id}?pvs=4#notes`;
+    doc.querySelector(`.favorites-section a[href*="${id}"]`).href = expectedHref;
+    await win.NotionFavoriteSections.content.refresh();
+    click('button[aria-label="FAVMOA"]');
     click('button[aria-label="Notion 즐겨찾기 추가"]');
     click('input[aria-label="Decisions 선택"]');
     click('button[aria-label="선택한 즐겨찾기 추가"]');
     await wait(()=>favorite()?.querySelector('.nfs-favorite-title')?.textContent==='Decisions');
     await win.NotionFavoriteSections.content.refresh();
     const before=JSON.stringify(win.__nfsLiveDemo.workspace), revision=win.__nfsLiveDemo.revision;
-    check(favorite().querySelector('a'), 'Initial managed page link absent');
+    check(favorite().querySelector('a')?.href===expectedHref, 'Initial scoped page link absent');
     pass('Explicitly added Favorite starts with its real title and link');
 
     const source=doc.querySelector('.favorites-section');
     source.hidden=true;
     await win.NotionFavoriteSections.content.refresh();
     check(favorite().querySelector('.nfs-favorite-title').textContent==='Decisions','Title lost when source collapsed');
-    check(favorite().querySelector('a')?.href===`https://app.notion.com/${id}`,'Canonical link lost');
+    check(favorite().querySelector('a')?.href===expectedHref,'Original scoped link lost');
     check(deep('button[aria-label="Notion 즐겨찾기 추가"]').disabled,'Cache authorized new imports');
     check(JSON.stringify(win.__nfsLiveDemo.workspace)===before && win.__nfsLiveDemo.revision===revision,'Display refresh changed saved layout');
     pass('Collapsed source retains title/icon/link without changing source eligibility or tree revision');
@@ -42,9 +45,9 @@
     script.src='../src/content.js?v=0.1.9-cache-restart';
     const loaded=new Promise((resolve,reject)=>{script.onload=resolve;script.onerror=reject;});doc.body.append(script);await loaded;
     await win.NotionFavoriteSections.content.refresh();
-    click('button[aria-label="Moa"]');
+    click('button[aria-label="FAVMOA"]');
     check(favorite().querySelector('.nfs-favorite-title').textContent==='Decisions','Fresh controller failed to hydrate stored title');
-    check(favorite().querySelector('a')?.href===`https://app.notion.com/${id}`,'Fresh controller link absent');
+    check(favorite().querySelector('a')?.href===expectedHref,'Fresh controller original link absent');
     pass('Fresh controller restores cached title with the original source still hidden');
 
     source.hidden=false;
