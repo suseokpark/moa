@@ -89,7 +89,7 @@ a:hover { text-decoration: underline; }
 .secondary:hover:not(:disabled) { background: var(--hover); }
 .small { font-size: 12px; padding: 6px 10px; min-height: 32px; }
 .status { font-size: 12px; overflow-wrap: anywhere; color: var(--accent); margin: 9px 0; }
-.status:empty { display: none; }
+.status:empty:not(.sr-only) { display: none; }
 .status[data-error=true] { color: var(--danger); }
 .group {
   margin: 6px 0 18px; padding: 5px 6px 6px; border-radius: 9px;

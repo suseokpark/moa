@@ -25,9 +25,12 @@ function catalog(name) {
 }
 
 class Element {
-  constructor(tag) { this.tag = tag; this.children = []; this.listeners = new Map(); this.textContent = ""; this.value = ""; this.open = false; }
+  constructor(tag) { this.tag = tag; this.children = []; this.listeners = new Map(); this.textContent = ""; this.value = ""; this.open = false; this.attributes = {}; this.dataset = {}; }
   append(...children) { this.children.push(...children); }
   addEventListener(type, listener) { this.listeners.set(type, listener); }
+  setAttribute(name, value) { this.attributes[name] = String(value); }
+  getAttribute(name) { return this.attributes[name] ?? null; }
+  removeAttribute(name) { delete this.attributes[name]; }
 }
 
 function textOf(element) { return [element.textContent, ...element.children.map(textOf)].join(" "); }
@@ -50,6 +53,7 @@ function dialogFixture({ hasRestorePoint = false } = {}) {
     libraryId: "library-personal", validateCatalog, prepareLinkInput, flattenGroups,
     document: { createElement(tag) { const element = new Element(tag); elements.push(element); return element; } },
     render() {}, exportBackup() {}, announce: message => messages.push(message),
+    $: () => ({ textContent: "" }),
     showDialog(title, submitText, populate, submit) {
       context.dialog = { title, submitText, body: new Element("body"), submit };
       populate(context.dialog.body);

@@ -22,6 +22,8 @@ let dialogSubmit = null;
 let dialogOrigin = null;
 let dialogReturnKeys = [];
 let dialogBusy = false;
+const dialogDisabledStates = new Map();
+let dialogBusyFocus = null;
 let mutationBusy = false;
 let refreshGeneration = 0;
 let deferredRender = false;
@@ -64,6 +66,12 @@ function button(text, callback, className = "") {
   return result;
 }
 function announce(message = "", error = false) { $("status").textContent = message; $("status").dataset.error = String(error); }
+function announceNavigation(message = "", error = false) {
+  const status = $("navigation-status");
+  status.classList.toggle("sr-only", !error);
+  status.dataset.error = String(error);
+  status.textContent = message;
+}
 function library() { return state?.catalog.libraries.find(item => item.id === libraryId); }
 function linksOf(value) { return flattenGroups(value).flatMap(({ group }) => group.links); }
 function allLinkCount(catalog) { return catalog.libraries.reduce((sum, item) => sum + linksOf(item).length, 0); }
@@ -105,6 +113,23 @@ async function dispatch(action, expectedRevision = state?.revision, message = "�
   } finally { mutationBusy = false; }
 }
 
+function setDialogBusy(value) {
+  if (value === dialogBusy) return;
+  dialogBusy = value;
+  $("dialog-form").setAttribute("aria-busy", String(value));
+  if (value) {
+    dialogBusyFocus = document.activeElement;
+    for (const control of $("dialog-form").querySelectorAll("input,select,button")) {
+      dialogDisabledStates.set(control, control.disabled);
+      control.disabled = true;
+    }
+  } else {
+    for (const [control, disabled] of dialogDisabledStates) control.disabled = disabled;
+    if (dialogDisabledStates.has(dialogBusyFocus) && dialogBusyFocus.isConnected && !dialogBusyFocus.disabled) dialogBusyFocus.focus();
+    dialogBusyFocus = null;
+    dialogDisabledStates.clear();
+  }
+}
 function closeDialog() {
   if (dialogBusy) return;
   $("dialog").close();
@@ -159,7 +184,24 @@ function destinationFields(parent, groupId) {
 function nameDialog(title, action, current = "") {
   const revision = state.revision;
   let name;
-  showDialog(title, "저장", body => { name = field(body, "이름", current, { maxLength: 80 }); }, () => dispatch({ ...action, name: name.value.trim() }, revision));
+  showDialog(title, "저장", body => { name = field(body, "이름", current, { maxLength: 80 }); }, async () => {
+    const previousIds = action.type === "addLibrary" ? new Set(state.catalog.libraries.map(item => item.id)) : null;
+    const saved = await dispatch({ ...action, name: name.value.trim() }, revision);
+    if (saved && previousIds) {
+      const created = state.catalog.libraries.filter(item => !previousIds.has(item.id));
+      // Only follow the one library created by this successful operation.
+      // Failed/conflicting saves must not select another screen's new library.
+      if (created.length === 1) {
+        libraryId = created[0].id;
+        $("search").value = "";
+        suppressedFolds.clear();
+        dialogOrigin = $("library-picker");
+        dialogReturnKeys = [];
+        render();
+      }
+    }
+    return saved;
+  });
 }
 function confirmDialog(title, description, submit, callback) {
   showDialog(title, submit, body => body.append(node("p", description, "form-note")), callback);
@@ -182,12 +224,33 @@ function linkDialog(link = null, destination = {}) {
   const revision = state.revision;
   const targetLibrary = libraryId;
   let title, url, to;
+  const clearFieldError = control => {
+    if (control.getAttribute("aria-invalid") !== "true") return;
+    control.removeAttribute("aria-invalid");
+    const descriptions = (control.getAttribute("aria-describedby") || "").split(/\s+/u).filter(id => id && id !== "dialog-error");
+    if (descriptions.length) control.setAttribute("aria-describedby", descriptions.join(" "));
+    else control.removeAttribute("aria-describedby");
+    if ($("dialog-error").textContent === control.dataset.validationError) $("dialog-error").textContent = "";
+    delete control.dataset.validationError;
+  };
+  const validateField = (control, input) => {
+    try { return prepareLinkInput(input); }
+    catch (error) {
+      control.setAttribute("aria-invalid", "true");
+      const descriptions = new Set((control.getAttribute("aria-describedby") || "").split(/\s+/u).filter(Boolean));
+      descriptions.add("dialog-error"); control.setAttribute("aria-describedby", [...descriptions].join(" "));
+      control.dataset.validationError = error.message;
+      error.focusTarget = control;
+      throw error;
+    }
+  };
   showDialog(link?.id ? "링크 수정" : "링크 담기", link?.id ? "수정" : "담기", body => {
     url = field(body, "웹 주소", link?.url || "", { maxLength: 4096 });
     url.inputMode = "url"; url.autocapitalize = "off"; url.spellcheck = false;
     url.placeholder = "example.com 또는 https://…";
     title = field(body, "이름 (선택)", link?.title || "", { required: false, maxLength: 300 });
     title.placeholder = "비워두면 사이트 주소로 저장";
+    for (const control of [url, title]) control.addEventListener("input", () => clearFieldError(control));
     if (!link?.id) {
       const location = node("details", undefined, "destination-picker");
       const summary = node("summary");
@@ -200,7 +263,10 @@ function linkDialog(link = null, destination = {}) {
     }
     body.append(node("p", "이 브라우저에 저장합니다. 인증용·일회성 주소는 저장하지 마세요.", "form-note"));
   }, () => {
-    const input = prepareLinkInput({ title: title.value, url: url.value });
+    for (const control of [url, title]) clearFieldError(control);
+    // Validate the address first so an optional title error never blames it.
+    validateField(url, { url: url.value });
+    const input = validateField(title, { title: title.value, url: url.value });
     return dispatch(link?.id
       ? { type: "updateLink", libraryId: targetLibrary, linkId: link.id, ...input }
       : { type: "addLink", libraryId: targetLibrary, groupId: to.group.value, link: input }, revision, link?.id ? "링크를 수정했습니다." : "링크를 담았습니다. 잘못 담았다면 되돌리기를 누르세요.");
@@ -280,16 +346,8 @@ function foldedHeader(label, count, key, item, hasCurrent, searching, action) {
 }
 function setLinkOpening(anchor, busy) {
   anchor.setAttribute("aria-busy", String(busy));
-  let indicator = anchor.querySelector(".open-indicator");
-  if (busy) {
-    if (!indicator) { indicator = node("span", "", "open-indicator"); anchor.append(indicator); }
-    if (indicator.dataset.idleText === undefined) indicator.dataset.idleText = indicator.textContent;
-    indicator.textContent = "여는 중";
-  } else if (indicator?.dataset.idleText !== undefined) {
-    indicator.textContent = indicator.dataset.idleText;
-    delete indicator.dataset.idleText;
-    if (!indicator.textContent) indicator.remove();
-  }
+  // Keep the title and current/open badge in place, even during slow opens.
+  // Inserting temporary text here squeezed the title and flashed on fast APIs.
 }
 function updateOpeningLinks(url, busy) {
   for (const anchor of document.querySelectorAll("#tree .link-anchor")) {
@@ -301,15 +359,14 @@ async function openSavedLink(link, options = {}) {
   openingUrls.add(link.url);
   openingCounts.set(link.url, (openingCounts.get(link.url) || 0) + 1);
   updateOpeningLinks(link.url, true);
-  announce(`‘${link.title}’ 여는 중…`);
   try {
     const result = await platform.openLink(link.url, options);
-    if (!result.ok) announce(result.error, true);
+    if (!result.ok) announceNavigation(result.error || "페이지를 열지 못했습니다. 다시 눌러 주세요.", true);
     else {
-      announce(result.reused ? "이미 열린 탭으로 이동했습니다." : "새 탭에서 열었습니다.");
+      announceNavigation(result.reused ? "이미 열린 탭으로 이동했습니다." : "새 탭에서 열었습니다.");
       refreshTabs().catch(error => announce(error.message, true));
     }
-  } catch (error) { announce(error.message || "탭을 열지 못했습니다. 다시 눌러 주세요.", true); }
+  } catch (error) { announceNavigation(error.message || "탭을 열지 못했습니다. 다시 눌러 주세요.", true); }
   finally {
     const remaining = openingCounts.get(link.url) - 1;
     if (remaining) openingCounts.set(link.url, remaining);
@@ -570,15 +627,17 @@ async function chooseBookmarks() {
 $("dialog-form").addEventListener("submit", async event => {
   event.preventDefault(); if (dialogBusy || !dialogSubmit) return;
   const activeHandler = dialogSubmit;
-  dialogBusy = true; $("dialog-submit").disabled = true; $("dialog-error").textContent = "";
+  setDialogBusy(true); $("dialog-error").textContent = "";
   try {
     const shouldClose = await activeHandler();
-    dialogBusy = false;
+    setDialogBusy(false);
     if (shouldClose !== false && dialogSubmit === activeHandler) closeDialog();
   } catch (error) {
+    setDialogBusy(false);
     $("dialog-error").textContent = error.message;
+    error.focusTarget?.focus();
   }
-  finally { dialogBusy = false; $("dialog-submit").disabled = false; }
+  finally { setDialogBusy(false); }
 });
 treeDrag.bindTarget($("root-drop"), { groupId: null });
 document.addEventListener("dragstart", () => { for (const menu of document.querySelectorAll(".row-menu[open]")) menu.open = false; }, true);

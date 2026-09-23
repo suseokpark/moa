@@ -15,7 +15,7 @@
     <header class="brand-header">
       <img src="../icons/moa-mark.svg" width="34" height="34" alt="">
       <div><h1>FAVMOA <span>팹모아</span></h1><p>링크를 모으고, 바로 찾기</p></div>
-      <span class="version">0.1.24</span>
+      <span class="version">0.1.25</span>
       <button id="theme-open" class="text-button" type="button" aria-haspopup="dialog"><svg class="theme-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3a9 9 0 1 0 0 18h1.5a2 2 0 0 0 1.6-3.2l-.6-.8a1.5 1.5 0 0 1 1.2-2.4H18a3 3 0 0 0 3-3C21 6.8 17 3 12 3Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="7.5" cy="10" r="1.6" fill="#34856a"/><circle cx="11.5" cy="6.8" r="1.6" fill="#4b80d6"/><circle cx="16.3" cy="8.5" r="1.6" fill="#ce668e"/></svg>테마</button>
     </header>
     <p id="demo-notice" class="notice" hidden>미리보기 · 현재 페이지와 북마크는 예시입니다. 실제 확장 데이터와는 별도로 저장됩니다.</p>
@@ -31,6 +31,7 @@
     <div class="search-bar"><span class="ui-icon icon-search" aria-hidden="true"></span><label class="sr-only" for="search">저장한 링크 검색</label><input id="search" type="search" placeholder="이 보관함에서 검색" autocomplete="off"><button id="clear-search" class="text-button" aria-label="검색어 지우기" hidden>지우기</button><kbd>/</kbd></div>
     <div class="tree-toolbar"><p id="link-count">내 링크</p><div><button id="add-group" class="secondary small"><span class="ui-icon icon-plus" aria-hidden="true"></span>그룹</button><button id="add-link" class="primary small"><span class="ui-icon icon-plus" aria-hidden="true"></span>링크 추가</button></div></div>
     <p id="status" class="status" role="status" aria-live="polite"></p>
+    <p id="navigation-status" class="status sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
     <p id="drag-help" class="drag-help">끌어서 그룹으로 이동 · 메뉴에서도 이동 가능</p>
     <div id="root-drop" class="root-drop">여기에 놓으면 보관함 맨 위로 이동</div>
     <div id="tree" aria-label="그룹과 하위 그룹으로 정리한 링크"></div>

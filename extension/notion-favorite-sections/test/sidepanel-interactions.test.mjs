@@ -35,33 +35,35 @@ function openingFixture(result) {
     platform: { openLink: (...args) => { events.push(["open", ...args]); return response; } },
     updateOpeningLinks: (...args) => events.push(["busy", ...args]),
     announce: (...args) => events.push(["announce", ...args]),
+    announceNavigation: (...args) => events.push(["navigation", ...args]),
     refreshTabs: async () => { events.push(["refresh"]); }
   });
   vm.runInContext(script.slice(start, end), context);
   return { events, context, open: (options = {}) => context.openSavedLink({ title: "Example", url: "https://example.com/document" }, options), resolve: () => resolve(result), reject };
 }
 
-test("click feedback starts before Chrome responds, coalesces repeat clicks, and clears after success", async () => {
+test("accessible click state starts before Chrome responds, coalesces repeats, and stays visually quiet", async () => {
   const fixture = openingFixture({ ok: true, reused: false });
   const pending = fixture.open();
   assert.equal(fixture.events[0][0], "busy");
   assert.equal(fixture.events[0][2], true);
-  assert.equal(fixture.events[1][0], "announce");
-  assert.match(fixture.events[1][1], /여는 중/u);
-  assert.equal(fixture.events[2][0], "open", "call must start synchronously to preserve the click gesture");
+  assert.equal(fixture.events[1][0], "open", "call must start synchronously to preserve the click gesture");
+  assert.ok(fixture.events.every(event => event[0] !== "announce"), "routine navigation must not flash the global status line");
   await fixture.open();
   assert.equal(fixture.events.filter(event => event[0] === "open").length, 1);
   fixture.resolve(); await pending;
   assert.equal(fixture.context.openingUrls.size, 0);
   assert.deepEqual(fixture.events.at(-1), ["busy", "https://example.com/document", false]);
   assert.ok(fixture.events.some(event => event[0] === "refresh"));
+  assert.ok(fixture.events.some(event => event[0] === "navigation" && event[1] && !event[2]));
+  assert.ok(fixture.events.every(event => event[0] !== "announce"));
 });
 
 test("failed opens clear pending state, announce the failure, and allow retry", async () => {
   const fixture = openingFixture({ ok: false, error: "열기 실패" });
   const pending = fixture.open(); fixture.resolve(); await pending;
   assert.equal(fixture.context.openingUrls.size, 0);
-  assert.ok(fixture.events.some(event => event[0] === "announce" && event[1] === "열기 실패" && event[2] === true));
+  assert.ok(fixture.events.some(event => event[0] === "navigation" && event[1].includes("열기 실패") && event[2] === true));
   await fixture.open();
   assert.equal(fixture.events.filter(event => event[0] === "open").length, 2);
 });
@@ -81,7 +83,7 @@ test("unexpected API rejection does not leave the link stuck as opening", async 
   const fixture = openingFixture(); const pending = fixture.open();
   fixture.reject(new Error("API failed")); await pending;
   assert.equal(fixture.context.openingUrls.size, 0);
-  assert.ok(fixture.events.some(event => event[0] === "announce" && event[2] === true));
+  assert.ok(fixture.events.some(event => event[0] === "navigation" && event[2] === true));
 });
 
 test("render precomputes tab identities instead of scanning every tab for every link", () => {
