@@ -258,6 +258,76 @@ test("post-drag click suppression survives a synchronous tree re-render", async 
   assert.equal(click.defaultPrevented, true); assert.equal(opened, false);
 });
 
+test("a fresh pointer gesture immediately after a drag activates links and menus on its first click", async t => {
+  t.mock.method(Date, "now", () => 1000);
+  for (const targetName of ["anchor", "menu"]) {
+    await t.test(targetName, async () => {
+      const fixture = controllerFixture(), { transfer } = await fixture.start();
+      await fire("dragend", fixture.row, transfer);
+      let activated = 0;
+      const target = targetName === "menu" ? new Element("span") : fixture.anchor;
+      if (targetName === "menu") fixture.menu.append(target);
+      target.addEventListener("click", () => { activated += 1; });
+      target.addEventListener("pointerdown", event => { event.stopPropagation(); });
+      await fire("pointerdown", target);
+      await fire("pointerup", target);
+      const click = await fire("click", target);
+      assert.equal(click.defaultPrevented, false, "a new gesture is not a trailing click from the drag");
+      assert.equal(activated, 1);
+    });
+  }
+});
+
+test("a fresh pointer gesture after a move activates a replacement row's first click", async t => {
+  t.mock.method(Date, "now", () => 1000);
+  const fixture = controllerFixture(), { transfer } = await fixture.start();
+  await fire("drop", fixture.target, transfer);
+  const replacement = new Element(), anchor = new Element("a");
+  replacement.dataset.linkId = "work-link"; replacement.append(anchor); fixture.body.append(replacement);
+  let opened = 0; anchor.addEventListener("click", () => { opened += 1; });
+  await fire("pointerdown", anchor);
+  await fire("pointerup", anchor);
+  const click = await fire("click", anchor);
+  assert.equal(click.defaultPrevented, false);
+  assert.equal(opened, 1);
+});
+
+test("a fresh pointer gesture immediately after group drag toggles its fold button", async t => {
+  t.mock.method(Date, "now", () => 1000);
+  const fixture = controllerFixture(), fold = new Element("button");
+  fixture.body.append(fold);
+  fixture.controller.bindSource(fold, { kind: "group", id: "child" });
+  const { transfer } = await fixture.start(fold);
+  await fire("dragend", fold, transfer);
+  let toggled = 0; fold.addEventListener("click", () => { toggled += 1; });
+  await fire("pointerdown", fold);
+  await fire("pointerup", fold);
+  const click = await fire("click", fold);
+  assert.equal(click.defaultPrevented, false);
+  assert.equal(toggled, 1);
+});
+
+test("each later drag still suppresses its own trailing click after a fresh gesture", async t => {
+  t.mock.method(Date, "now", () => 1000);
+  const fixture = controllerFixture();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const { transfer } = await fixture.start();
+    await fire("dragend", fixture.row, transfer);
+    assert.equal((await fire("click", fixture.anchor)).defaultPrevented, true);
+    await fire("pointerdown", fixture.anchor);
+    assert.equal((await fire("click", fixture.anchor)).defaultPrevented, false);
+  }
+});
+
+test("destroy removes the document gesture listener as well as click suppression", () => {
+  const fixture = controllerFixture();
+  assert.equal(fixture.document.listeners.get("pointerdown").length, 1);
+  fixture.controller.destroy();
+  for (const type of ["pointerdown", "click", "keydown", "dragend"]) {
+    assert.equal(fixture.document.listeners.get(type).length, 0, `${type} listener must be removed`);
+  }
+});
+
 test("leaving a target child retains highlight; leaving its boundary clears it", async () => {
   const fixture = controllerFixture(), child = new Element(); fixture.target.append(child);
   const { transfer } = await fixture.start(); await fire("dragover", child, transfer);

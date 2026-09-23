@@ -169,6 +169,7 @@ test("rendered recursive group/link controls retain names and current/open seman
   const context = vm.createContext({
     document, createPlatform: () => ({}), identifyUrl, findSavedPage,
     createTreeDrag: () => ({ bindSource() {}, bindTarget() {}, reset() {}, isDragging: () => false }),
+    createInteractionGuard: () => ({ isActive: () => false }),
     SYSTEM_GROUP_ID, flattenGroups, MAX_GROUP_DEPTH
   });
   const initializationStart = script.indexOf('$("dialog-form").addEventListener("submit"');

@@ -183,7 +183,12 @@ export function createTreeDrag({ getContext, onMove, announce = () => {}, onEnd 
     event.preventDefault(); event.stopImmediatePropagation();
     suppressedSource = null; suppressUntil = 0;
   };
+  const beginPointerGesture = () => {
+    // A new press is intentional input, not the trailing click from a drag.
+    suppressedSource = null; suppressUntil = 0;
+  };
   const escape = event => { if (event.key === "Escape") finish(); };
+  eventTarget?.addEventListener("pointerdown", beginPointerGesture, true);
   eventTarget?.addEventListener("click", suppressClick, true);
   eventTarget?.addEventListener("keydown", escape);
   eventTarget?.addEventListener("dragend", finish);
@@ -191,6 +196,7 @@ export function createTreeDrag({ getContext, onMove, announce = () => {}, onEnd 
     bindSource, bindTarget, reset, isDragging: () => Boolean(active),
     destroy() {
       destroyed = true; reset(); suppressedSource = null;
+      eventTarget?.removeEventListener("pointerdown", beginPointerGesture, true);
       eventTarget?.removeEventListener("click", suppressClick, true);
       eventTarget?.removeEventListener("keydown", escape);
       eventTarget?.removeEventListener("dragend", finish);

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="ko">
+<head><meta charset="utf-8"><title>FAVMOA 첫 클릭 회귀 검증</title>
+<style>body{font:14px system-ui;margin:16px;color:#202622}iframe{display:block;width:380px;height:720px;border:1px solid #a4ada7;margin-top:12px}output{display:block;margin:8px 0}</style></head>
+<body>
+<h1>첫 클릭 회귀 검증 · 로컬 데모</h1>
+<p>링크를 누르는 동안 포커스 갱신을 발생시킵니다. 실제 Chrome 확장 API 검증은 아닙니다.</p>
+<label><input id="refresh-on-press" type="checkbox" checked>누르기와 떼기 사이에 포커스 갱신</label>
+<output id="result" aria-live="polite">누름 0 · 링크 클릭 0 · 누르던 링크 교체 0</output>
+<iframe id="panel" src="../sidepanel/sidepanel.html" title="FAVMOA 로컬 미리보기"></iframe>
+<script type="module">
+const frame = document.getElementById("panel");
+let presses = 0, clicks = 0, removed = 0, pressed = null;
+const show = () => { document.getElementById("result").textContent = `누름 ${presses} · 링크 클릭 ${clicks} · 누르던 링크 교체 ${removed}`; };
+frame.addEventListener("load", () => {
+  const doc = frame.contentDocument;
+  doc.addEventListener("pointerdown", event => {
+    pressed = event.target.closest("#tree .link-anchor");
+    if (!pressed) return;
+    presses += 1; show();
+    if (document.getElementById("refresh-on-press").checked) {
+      setTimeout(() => frame.contentWindow.dispatchEvent(new frame.contentWindow.Event("focus")), 0);
+    }
+  }, true);
+  doc.addEventListener("pointerup", () => {
+    if (pressed && !pressed.isConnected) removed += 1;
+    pressed = null; show();
+  }, true);
+  doc.addEventListener("click", event => {
+    if (event.target.closest("#tree .link-anchor")) { clicks += 1; show(); }
+  });
+});
+</script>
+</body></html>

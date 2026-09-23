@@ -39,6 +39,7 @@ const EXPECTED_RUNTIME_FILES = [
   "src/favmoa-service.js",
   "src/feature-flags.js",
   "src/group-colors.js",
+  "src/interaction-guard.js",
   "src/link-entry.js",
   "src/link-library.js",
   "src/link-navigation.js",

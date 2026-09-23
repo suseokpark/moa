@@ -4,6 +4,7 @@ import { prepareLinkInput } from "../src/link-entry.js";
 import { findSavedPage } from "../src/link-navigation.js";
 import { createGroupColorEditor } from "../src/group-colors.js";
 import { createTreeDrag } from "../src/tree-drag.js";
+import { createInteractionGuard } from "../src/interaction-guard.js";
 
 const $ = (id) => document.getElementById(id);
 const platform = createPlatform();
@@ -23,21 +24,26 @@ let dialogReturnKeys = [];
 let dialogBusy = false;
 let mutationBusy = false;
 let refreshGeneration = 0;
-let deferredTabRender = false;
+let deferredRender = false;
+let pendingTreeEffect = null;
+let pendingTabSnapshot = null;
+const interactionGuard = createInteractionGuard({ onIdle: flushPendingUI });
 const treeDrag = createTreeDrag({
   getContext: () => ({ library: library(), libraryId, catalogRevision: state?.revision, busy: mutationBusy || dialogBusy || Boolean($("dialog")?.open || $("theme-dialog")?.open) }),
   onMove: async (action, revision) => {
     await dispatch(action, revision, "이동했습니다. 되돌리기로 취소할 수 있어요.");
-    const movedId = action.linkId || action.groupId;
-    const selector = action.linkId ? "[data-link-id]" : "[data-group-id]";
-    const target = [...document.querySelectorAll(selector)].find(item => (action.linkId ? item.dataset.linkId : item.dataset.groupId) === movedId);
-    const destinationId = action.targetGroupId || action.targetParentGroupId;
-    const destination = [...document.querySelectorAll("[data-group-id]")].find(item => item.dataset.groupId === destinationId);
-    const control = target?.querySelector(action.linkId ? "a" : ".fold") || destination?.querySelector(".fold");
-    control?.focus(); control?.scrollIntoView({ block: "nearest" });
+    runAfterTreeRender(() => {
+      const movedId = action.linkId || action.groupId;
+      const selector = action.linkId ? "[data-link-id]" : "[data-group-id]";
+      const target = [...document.querySelectorAll(selector)].find(item => (action.linkId ? item.dataset.linkId : item.dataset.groupId) === movedId);
+      const destinationId = action.targetGroupId || action.targetParentGroupId;
+      const destination = [...document.querySelectorAll("[data-group-id]")].find(item => item.dataset.groupId === destinationId);
+      const control = target?.querySelector(action.linkId ? "a" : ".fold") || destination?.querySelector(".fold");
+      control?.focus(); control?.scrollIntoView({ block: "nearest" });
+    });
   },
   announce,
-  onEnd: () => { if (deferredTabRender) { deferredTabRender = false; render(); } }
+  onEnd: flushPendingUI
 });
 
 function node(tag, text, className) {
@@ -391,6 +397,10 @@ function renderGroup(view, searching, path = []) {
 }
 function render() {
   if (!state) return;
+  // Keep the exact pressed element alive through pointerup AND native click.
+  // Catalog broadcasts and tab refreshes must not detach that event target.
+  if (interactionGuard.isActive() || treeDrag.isDragging()) { deferredRender = true; return; }
+  deferredRender = false;
   treeDrag.reset();
   openTabKeys = new Set(openTabs.map(tab => safeKey(tab.url)));
   const focusKey = !$("dialog").open ? document.activeElement?.dataset.focusKey : null;
@@ -425,6 +435,14 @@ function render() {
   $("restore-point-status").textContent = state.hasRestorePoint ? "복원 직전 목록을 이 브라우저에 보관하고 있습니다. 일반 편집 후에도 복구할 수 있어요." : "백업을 불러오면 바꾸기 직전 목록을 별도로 보관합니다.";
   $("backup-summary").textContent = `전체 보관함 ${state.catalog.libraries.length}개 · 링크 ${allLinkCount(state.catalog)}개를 파일로 보관합니다.`;
   restoreRenderedFocus(focusKey);
+  if (pendingTreeEffect) {
+    const effect = pendingTreeEffect; pendingTreeEffect = null;
+    effect();
+  }
+}
+function runAfterTreeRender(effect) {
+  if (deferredRender) pendingTreeEffect = effect;
+  else effect();
 }
 function restoreRenderedFocus(key) {
   if (!key || $("dialog").open) return;
@@ -444,23 +462,43 @@ function revealCurrentPage() {
   libraryId = saved.library.id; $("search").value = "";
   for (const group of saved.path) suppressedFolds.delete(`g:${libraryId}:${group.id}`);
   render();
-  const row = [...document.querySelectorAll("[data-link-id]")].find(item => item.dataset.linkId === saved.link.id);
-  row?.querySelector("a")?.focus(); row?.scrollIntoView({ block: "nearest", behavior: "auto" });
+  runAfterTreeRender(() => {
+    const row = [...document.querySelectorAll("[data-link-id]")].find(item => item.dataset.linkId === saved.link.id);
+    row?.querySelector("a")?.focus(); row?.scrollIntoView({ block: "nearest", behavior: "auto" });
+  });
   announce("이미 담은 페이지의 저장 위치로 이동했습니다.");
 }
-async function refreshTabs() {
-  const generation = ++refreshGeneration;
-  const [page, tabs] = await Promise.all([platform.getCurrentPage(), platform.getOpenTabs()]);
-  if (generation !== refreshGeneration) return;
-  currentPage = page; openTabs = tabs;
+function applyTabSnapshot({ page, tabs }) {
   const nextKey = safeKey(page?.url);
+  const nextOpenKeys = new Set(tabs.map(tab => safeKey(tab.url)));
+  const treeChanged = nextKey !== pageKey || nextOpenKeys.size !== openTabKeys.size
+    || [...nextOpenKeys].some(key => !openTabKeys.has(key));
+  currentPage = page; openTabs = tabs;
   if (nextKey !== pageKey) { pageKey = nextKey; suppressedFolds = new Set(); }
   $("current-page").replaceChildren(node("strong", page?.title || "저장할 웹페이지를 열어주세요"));
   if (page?.url) $("current-page").append(node("small", page.url));
   else $("current-page").append(node("small", "Chrome 설정 등 내부 페이지는 저장하지 않습니다."));
   $("save-current").disabled = !page;
-  if (treeDrag.isDragging()) deferredTabRender = true;
-  else render();
+  // Saved link titles do not change when a browser tab finishes loading.
+  // Focus/visibility notifications with the same URL set need no tree rebuild.
+  if (treeChanged) render();
+  else renderSavedLocation();
+}
+function flushPendingUI() {
+  if (interactionGuard.isActive() || treeDrag.isDragging()) return;
+  if (pendingTabSnapshot) {
+    const snapshot = pendingTabSnapshot;
+    pendingTabSnapshot = null;
+    applyTabSnapshot(snapshot);
+  }
+  if (deferredRender) render();
+}
+async function refreshTabs() {
+  const generation = ++refreshGeneration;
+  const [page, tabs] = await Promise.all([platform.getCurrentPage(), platform.getOpenTabs()]);
+  if (generation !== refreshGeneration) return;
+  pendingTabSnapshot = { page, tabs };
+  flushPendingUI();
 }
 function openBackupSettings() {
   $("settings").open = true;

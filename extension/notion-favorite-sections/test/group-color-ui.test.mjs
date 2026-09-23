@@ -159,6 +159,7 @@ function renderingFixture(groups) {
   const context = vm.createContext({
     document, createPlatform: () => ({}), identifyUrl, findSavedPage, createGroupColorEditor,
     createTreeDrag: () => ({ bindSource() {}, bindTarget() {}, reset() {}, isDragging: () => false }),
+    createInteractionGuard: () => ({ isActive: () => false }),
     SYSTEM_GROUP_ID, flattenGroups, MAX_GROUP_DEPTH, groups
   });
   const boundary = script.indexOf('$("dialog-form").addEventListener("submit"');

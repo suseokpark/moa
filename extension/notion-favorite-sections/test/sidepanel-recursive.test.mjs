@@ -82,6 +82,7 @@ test("saved-page reveal opens the complete path, preserves unrelated folds, and 
     suppressedFolds: new Set([...path.map(item => `g:${lib.id}:${item.id}`), `g:${lib.id}:personal`]),
     $: () => search, findSavedPage: () => ({ library: lib, group: path.at(-1), path, link: link("deep", "경쟁사 문서") }),
     render: () => calls.push("render"), announce: message => calls.push(message),
+    runAfterTreeRender: effect => effect(),
     document: { querySelectorAll: () => [{ dataset: { linkId: "deep" }, querySelector: () => ({ focus: () => calls.push("focus") }), scrollIntoView: () => calls.push("scroll") }] }
   });
   vm.runInContext(shipped("revealCurrentPage"), context);
