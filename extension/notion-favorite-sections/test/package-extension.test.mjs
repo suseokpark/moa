@@ -43,6 +43,7 @@ const EXPECTED_RUNTIME_FILES = [
   "src/link-entry.js",
   "src/link-library.js",
   "src/link-navigation.js",
+  "src/link-selection.js",
   "src/moa-brand.js",
   "src/notion-url.js",
   "src/storage-contract.js",

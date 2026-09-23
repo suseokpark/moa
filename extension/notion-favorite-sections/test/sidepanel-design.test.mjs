@@ -5,6 +5,7 @@ import vm from "node:vm";
 import { collectPackageEntries } from "../scripts/package-extension.mjs";
 import { flattenGroups, MAX_GROUP_DEPTH, identifyUrl, SYSTEM_GROUP_ID } from "../src/link-library.js";
 import { findSavedPage } from "../src/link-navigation.js";
+import { createLinkSelection } from "../src/link-selection.js";
 
 // Bounded source and synthetic-DOM regressions, not a WCAG conformance audit.
 // Real layout, zoom, computed styles, keyboard use and assistive technology
@@ -164,10 +165,12 @@ test("rendered recursive group/link controls retain names and current/open seman
   const elements = new Map();
   const document = {
     createElement: (tag) => new Element(tag),
+    querySelectorAll: selector => selector === "#tree .link-row" && elements.has("tree")
+      ? descendants(elements.get("tree")).filter(element => element.className.split(" ").includes("link-row")) : [],
     getElementById(id) { if (!elements.has(id)) elements.set(id, new Element("div")); return elements.get(id); }
   };
   const context = vm.createContext({
-    document, createPlatform: () => ({}), identifyUrl, findSavedPage,
+    document, createPlatform: () => ({}), identifyUrl, findSavedPage, createLinkSelection,
     createTreeDrag: () => ({ bindSource() {}, bindTarget() {}, reset() {}, isDragging: () => false }),
     createInteractionGuard: () => ({ isActive: () => false }),
     SYSTEM_GROUP_ID, flattenGroups, MAX_GROUP_DEPTH

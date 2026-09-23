@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
+import { createLinkSelection } from "../src/link-selection.js";
 
 const script = readFileSync(new URL("../sidepanel/sidepanel.js", import.meta.url), "utf8");
 const html = readFileSync(new URL("../sidepanel/sidepanel.html", import.meta.url), "utf8");
@@ -38,6 +39,7 @@ function fixture({ badge = "", immediateResult = null } = {}) {
       querySelectorAll: () => anchor ? [anchor] : []
     },
     openingUrls: new Set(), openingCounts: new Map(),
+    linkSelection: createLinkSelection(),
     openTabKeys: new Set(badge ? [link.url] : []),
     pageKey: badge === "현재" ? link.url : "", libraryId: "synthetic-library",
     safeKey: value => value,

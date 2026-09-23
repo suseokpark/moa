@@ -414,6 +414,29 @@ export function applyCatalogAction(input, action) {
       if (group.id !== found.group.id) { found.group.links.splice(found.index, 1); group.links.push(found.link); }
       break;
     }
+    case "moveLinks": {
+      if (action.targetSectionId !== undefined) fail("섹션 대신 이동할 그룹을 선택해 주세요.");
+      const ids = array(action.linkIds, MAX_LINKS, "이동할 링크");
+      if (!ids.length) fail("이동할 링크를 한 개 이상 선택해 주세요.");
+      const selected = new Set();
+      for (const value of ids) unique(id(value), selected, "링크 ID");
+      const { group: target, path } = destination(library, action.targetGroupId);
+      const groups = flattenGroups(library);
+      const existing = new Set(groups.flatMap(({ group }) => group.links.map(link => link.id)));
+      if ([...selected].some(linkId => !existing.has(linkId))) fail("선택한 링크를 찾을 수 없습니다. 목록을 다시 확인해 주세요.");
+      // Resolve the complete selection before changing the copied catalog.
+      // Tree order wins over checkbox order; existing destination links stay put.
+      const incoming = [];
+      for (const { group } of groups) {
+        if (group === target) continue;
+        incoming.push(...group.links.filter(link => selected.has(link.id)));
+        group.links = group.links.filter(link => !selected.has(link.id));
+      }
+      target.links.push(...incoming);
+      // A true no-op also preserves folds, the storage revision and prior undo.
+      if (incoming.length) for (const group of path) group.collapsed = false;
+      break;
+    }
     case "reorderLink": {
       if (!["up", "down"].includes(action.direction)) fail("정렬 방향이 올바르지 않습니다.");
       const { group, index } = findLink(library, action.linkId);

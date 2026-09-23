@@ -5,6 +5,7 @@ import vm from "node:vm";
 import { createGroupColorEditor, GROUP_COLOR_PRESETS } from "../src/group-colors.js";
 import { flattenGroups, identifyUrl, MAX_GROUP_DEPTH, SYSTEM_GROUP_ID } from "../src/link-library.js";
 import { findSavedPage } from "../src/link-navigation.js";
+import { createLinkSelection } from "../src/link-selection.js";
 
 // Synthetic DOM behavior checks only: layout, native color picker interaction
 // and actual Chrome storage are tested separately and are not inferred here.
@@ -157,7 +158,7 @@ const script = await readFile(new URL("../sidepanel/sidepanel.js", import.meta.u
 function renderingFixture(groups) {
   const document = documentFixture();
   const context = vm.createContext({
-    document, createPlatform: () => ({}), identifyUrl, findSavedPage, createGroupColorEditor,
+    document, createPlatform: () => ({}), identifyUrl, findSavedPage, createGroupColorEditor, createLinkSelection,
     createTreeDrag: () => ({ bindSource() {}, bindTarget() {}, reset() {}, isDragging: () => false }),
     createInteractionGuard: () => ({ isActive: () => false }),
     SYSTEM_GROUP_ID, flattenGroups, MAX_GROUP_DEPTH, groups

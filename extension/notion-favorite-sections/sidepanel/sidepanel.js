@@ -5,9 +5,11 @@ import { findSavedPage } from "../src/link-navigation.js";
 import { createGroupColorEditor } from "../src/group-colors.js";
 import { createTreeDrag } from "../src/tree-drag.js";
 import { createInteractionGuard } from "../src/interaction-guard.js";
+import { createLinkSelection } from "../src/link-selection.js";
 
 const $ = (id) => document.getElementById(id);
 const platform = createPlatform();
+const linkSelection = createLinkSelection();
 let state = null;
 let libraryId = "";
 let currentPage = null;
@@ -31,7 +33,7 @@ let pendingTreeEffect = null;
 let pendingTabSnapshot = null;
 const interactionGuard = createInteractionGuard({ onIdle: flushPendingUI });
 const treeDrag = createTreeDrag({
-  getContext: () => ({ library: library(), libraryId, catalogRevision: state?.revision, busy: mutationBusy || dialogBusy || Boolean($("dialog")?.open || $("theme-dialog")?.open) }),
+  getContext: () => ({ library: library(), libraryId, catalogRevision: state?.revision, busy: linkSelection.isActive() || mutationBusy || dialogBusy || Boolean($("dialog")?.open || $("theme-dialog")?.open) }),
   onMove: async (action, revision) => {
     await dispatch(action, revision, "이동했습니다. 되돌리기로 취소할 수 있어요.");
     runAfterTreeRender(() => {
@@ -154,6 +156,7 @@ function showDialog(title, submitText, populate, onSubmit) {
   }
   $("dialog-title").textContent = title;
   $("dialog-submit").textContent = submitText;
+  $("dialog-submit").disabled = false;
   $("dialog-error").textContent = "";
   $("dialog-body").replaceChildren();
   dialogSubmit = onSubmit;
@@ -278,6 +281,76 @@ function moveDialog(link) {
   const currentGroup = flattenGroups(library()).find(({ group }) => group.links.some(item => item.id === link.id))?.group;
   showDialog("링크 이동", "이동", body => { body.append(node("p", link.title, "form-note")); to = destinationFields(body, currentGroup?.id); }, () => dispatch({ type: "moveLink", linkId: link.id, targetGroupId: to.group.value }, revision));
 }
+function visibleSelectionIds() {
+  return [...document.querySelectorAll("#tree .link-row")].map(row => row.dataset.linkId);
+}
+function renderSelectionControls() {
+  const active = linkSelection.isActive();
+  const visibleIds = visibleSelectionIds();
+  const selectedVisible = visibleIds.filter(id => linkSelection.has(id)).length;
+  const count = linkSelection.count();
+  const hiddenCount = count - selectedVisible;
+  $("selection-bar").hidden = !active;
+  $("select-mode").textContent = active ? "선택 종료" : "선택";
+  $("select-mode").setAttribute("aria-pressed", String(active));
+  $("select-mode").disabled = !active && !linksOf(library()).length;
+  $("add-group").hidden = active;
+  $("add-link").hidden = active;
+  $("selection-count").textContent = `${count}개 선택${hiddenCount > 0 ? ` · 화면 밖 ${hiddenCount}개 포함` : ""}`;
+  $("select-visible").checked = visibleIds.length > 0 && selectedVisible === visibleIds.length;
+  $("select-visible").indeterminate = selectedVisible > 0 && selectedVisible < visibleIds.length;
+  $("select-visible").disabled = !visibleIds.length;
+  $("move-selected").disabled = !count;
+  $("drag-help").textContent = active ? "링크를 눌러 선택하세요. 검색·접힘으로 숨겨진 선택도 유지됩니다." : "끌어서 그룹으로 이동 · 메뉴에서도 이동 가능";
+}
+function toggleSelectionMode() {
+  if (linkSelection.isActive()) linkSelection.stop();
+  else linkSelection.start(libraryId, linksOf(library()).map(link => link.id));
+  render();
+}
+function bulkMoveDialog() {
+  const ids = linkSelection.selected();
+  if (!ids.length || !linkSelection.isActive()) return;
+  const revision = state.revision;
+  const targetLibrary = libraryId;
+  const selected = new Set(ids);
+  const entries = flattenGroups(library());
+  const visible = new Set(visibleSelectionIds());
+  const hidden = ids.filter(id => !visible.has(id)).length;
+  let to, hint;
+  const countIncoming = () => entries.filter(({ group }) => group.id !== to.group.value)
+    .reduce((sum, { group }) => sum + group.links.filter(link => selected.has(link.id)).length, 0);
+  const updateHint = () => {
+    const incoming = countIncoming();
+    hint.textContent = incoming ? `${incoming}개 이동 · 이미 이 그룹에 있는 ${ids.length - incoming}개는 그대로 둡니다.` : "선택한 링크가 모두 이 그룹에 있습니다. 다른 그룹을 선택하세요.";
+    $("dialog-submit").disabled = !incoming;
+  };
+  showDialog("선택한 링크 이동", "이동", body => {
+    body.append(node("p", `${ids.length}개 링크를 함께 옮깁니다.${hidden ? ` 검색·접힘으로 화면 밖에 있는 ${hidden}개도 포함됩니다.` : ""} 원본 페이지는 바뀌지 않습니다.`, "form-note"));
+    to = destinationFields(body);
+    hint = node("p", "", "form-note"); hint.setAttribute("aria-live", "polite");
+    body.append(hint);
+    to.group.addEventListener("change", updateHint);
+    updateHint();
+  }, async () => {
+    const count = countIncoming();
+    if (!count) return false;
+    const targetGroupId = to.group.value;
+    await dispatch({ type: "moveLinks", libraryId: targetLibrary, linkIds: ids, targetGroupId }, revision, `${count}개 링크를 이동했습니다. 한 번의 되돌리기로 복구할 수 있어요.`);
+    linkSelection.stop();
+    $("search").value = "";
+    dialogOrigin = $("select-mode"); dialogReturnKeys = [];
+    render();
+    runAfterTreeRender(() => {
+      const target = [...document.querySelectorAll("[data-group-id]")].find(group => group.dataset.groupId === targetGroupId)?.querySelector(".fold");
+      if (!target) return;
+      if ($("dialog").open) dialogOrigin = target;
+      else target.focus();
+      target.scrollIntoView({ block: "nearest" });
+    });
+    return true;
+  });
+}
 function groupMoveTargets(selectedLibrary, groupId) {
   return flattenGroups(selectedLibrary).filter(({ path }) => !path.some(group => group.id === groupId));
 }
@@ -378,9 +451,26 @@ function renderLink(link) {
   const active = linkKey === pageKey && pageKey;
   const row = node("div", undefined, `link-row${active ? " current" : ""}`);
   row.dataset.linkId = link.id;
-  const anchor = node("a", undefined, "link-anchor");
-  anchor.href = link.url; anchor.rel = "noopener noreferrer"; anchor.title = `${link.title}\n${link.url}`;
-  anchor.dataset.focusKey = `open:${libraryId}:${link.id}`;
+  const selecting = linkSelection.isActive();
+  const anchor = node(selecting ? "label" : "a", undefined, selecting ? "link-choice" : "link-anchor");
+  anchor.title = `${link.title}\n${link.url}`;
+  if (selecting) {
+    const checkbox = node("input", undefined, "link-checkbox");
+    checkbox.type = "checkbox"; checkbox.checked = linkSelection.has(link.id);
+    checkbox.setAttribute("aria-label", `${link.title} 선택`);
+    checkbox.dataset.focusKey = `select:${libraryId}:${link.id}`;
+    if (checkbox.checked) row.classList.add("selected");
+    checkbox.addEventListener("change", () => {
+      linkSelection.toggle(link.id);
+      checkbox.checked = linkSelection.has(link.id);
+      row.classList.toggle("selected", checkbox.checked);
+      renderSelectionControls();
+    });
+    anchor.append(checkbox);
+  } else {
+    anchor.href = link.url; anchor.rel = "noopener noreferrer";
+    anchor.dataset.focusKey = `open:${libraryId}:${link.id}`;
+  }
   anchor.setAttribute("aria-describedby", "drag-help");
   if (active) anchor.setAttribute("aria-current", "page");
   const icon = link.icon || "";
@@ -391,6 +481,7 @@ function renderLink(link) {
   anchor.append(iconHolder, node("span", link.title, "link-title"));
   const isOpen = openTabKeys.has(linkKey);
   if (isOpen) anchor.append(node("span", active ? "현재" : "열림", "open-indicator"));
+  if (selecting) { row.append(anchor); return row; }
   if (openingUrls.has(link.url)) setLinkOpening(anchor, true);
   anchor.addEventListener("click", event => {
     if (event.button !== 0) return;
@@ -420,15 +511,16 @@ function renderGroup(view, searching, path = []) {
   const key = `g:${libraryId}:${group.id}`;
   const fold = foldedHeader(group.name, count, key, group, hasCurrent, searching, { type: "toggleGroup", groupId: group.id });
   fold.control.title = currentPath.map(item => item.name).join(" › ") + (searching ? " · 검색 중에는 하위 그룹까지 펼쳐 표시합니다." : "");
-  if (group.id !== SYSTEM_GROUP_ID) {
+  if (group.id !== SYSTEM_GROUP_ID && !linkSelection.isActive()) {
     fold.control.title += " · 끌어서 다른 그룹으로 이동";
     fold.control.setAttribute("aria-describedby", "drag-help");
     treeDrag.bindSource(fold.control, { kind: "group", id: group.id });
   }
-  treeDrag.bindTarget(wrapper, { groupId: group.id });
+  if (!linkSelection.isActive()) treeDrag.bindTarget(wrapper, { groupId: group.id });
   const addActions = [["여기에 링크 추가", () => linkDialog(null, { groupId: group.id })]];
   if (currentPath.length < MAX_GROUP_DEPTH) addActions.push(["하위 그룹 추가", () => nameDialog("하위 그룹 만들기", { type: "addGroup", parentGroupId: group.id })]);
-  heading.append(fold.control, menu(`${group.name}에 추가`, addActions, "plus", `add:${libraryId}:${group.id}`));
+  heading.append(fold.control);
+  if (!linkSelection.isActive()) heading.append(menu(`${group.name}에 추가`, addActions, "plus", `add:${libraryId}:${group.id}`));
   const groupActions = [["그룹 색상", () => groupColorDialog(group)]];
   if (group.id !== SYSTEM_GROUP_ID) groupActions.push(
     ["그룹 이름 변경", () => nameDialog("그룹 이름 변경", { type: "renameGroup", groupId: group.id }, group.name)],
@@ -441,7 +533,7 @@ function renderGroup(view, searching, path = []) {
       confirmDialog("그룹만 제거할까요?", `‘${group.name}’의 링크와 하위 그룹은 ${destination}으로 옮겨 보존합니다. 원본 문서는 바뀌지 않습니다.`, "그룹만 제거", () => dispatch({ type: "removeGroup", groupId: group.id }, revision));
     }, true]
   );
-  heading.append(menu(group.name, groupActions, "more", `menu:${libraryId}:${group.id}`));
+  if (!linkSelection.isActive()) heading.append(menu(group.name, groupActions, "more", `menu:${libraryId}:${group.id}`));
   wrapper.append(heading);
   if (fold.expanded) {
     const content = node("div", undefined, "group-children");
@@ -462,6 +554,7 @@ function render() {
   openTabKeys = new Set(openTabs.map(tab => safeKey(tab.url)));
   const focusKey = !$("dialog").open ? document.activeElement?.dataset.focusKey : null;
   const selectedLibrary = library();
+  linkSelection.reconcile(libraryId, linksOf(selectedLibrary).map(link => link.id));
   $("library-picker").replaceChildren();
   for (const value of state.catalog.libraries) option($("library-picker"), value.name, value.id, value.id === libraryId);
   const query = $("search").value.trim().toLocaleLowerCase();
@@ -476,6 +569,7 @@ function render() {
     $("tree").append(renderGroup(view, Boolean(query)));
   }
   $("link-count").textContent = query ? `검색 결과 ${shown}개 / 전체 ${total}개` : `내 링크 ${total}개`;
+  renderSelectionControls();
   if ((!total && !query) || (query && !visibleGroups.length)) {
     const empty = node("div", undefined, "empty-state");
     const mark = node("div", undefined, "empty-mark"); mark.append(uiIcon(query ? "search" : "arrow-up-right"));
@@ -648,6 +742,9 @@ $("add-group").addEventListener("click", () => nameDialog("그룹 만들기", { 
 $("add-library").addEventListener("click", () => nameDialog("보관함 만들기", { type: "addLibrary" }));
 $("rename-library").addEventListener("click", () => nameDialog("보관함 이름 변경", { type: "renameLibrary", libraryId }, library().name));
 $("add-link").addEventListener("click", () => linkDialog());
+$("select-mode").addEventListener("click", toggleSelectionMode);
+$("select-visible").addEventListener("change", () => { linkSelection.toggleVisible(visibleSelectionIds()); render(); });
+$("move-selected").addEventListener("click", bulkMoveDialog);
 $("save-current").addEventListener("click", revealCurrentPage);
 $("clear-search").addEventListener("click", clearSearch);
 $("backup-shortcut").addEventListener("click", openBackupSettings);
@@ -691,6 +788,7 @@ document.addEventListener("keydown", event => {
   if ($("theme-dialog")?.open) return;
   if (event.key === "/" && !$("dialog").open && !["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName)) { event.preventDefault(); $("search").focus(); }
   if (event.key === "Escape" && !$("dialog").open && document.activeElement === $("search") && $("search").value) { event.preventDefault(); clearSearch(); return; }
+  if (event.key === "Escape" && !$("dialog").open && linkSelection.isActive()) { event.preventDefault(); toggleSelectionMode(); $("select-mode").focus(); return; }
   if (event.key === "Escape" && !$("dialog").open) for (const value of document.querySelectorAll(".row-menu[open]")) { value.open = false; value.querySelector("summary").focus(); }
 });
 document.addEventListener("click", event => { for (const value of document.querySelectorAll(".row-menu[open]")) if (!value.contains(event.target)) value.open = false; });

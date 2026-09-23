@@ -4,6 +4,7 @@ import test from "node:test";
 import vm from "node:vm";
 import { flattenGroups, identifyUrl, MAX_GROUP_DEPTH, SYSTEM_GROUP_ID } from "../src/link-library.js";
 import { findSavedPage } from "../src/link-navigation.js";
+import { createLinkSelection } from "../src/link-selection.js";
 
 const script = await readFile(new URL("../sidepanel/sidepanel.js", import.meta.url), "utf8");
 
@@ -45,7 +46,7 @@ function fixture() {
   let interactionActive = false;
   let dragging = false;
   const context = vm.createContext({
-    document, window: {}, identifyUrl, findSavedPage, SYSTEM_GROUP_ID, flattenGroups, MAX_GROUP_DEPTH,
+    document, window: {}, identifyUrl, findSavedPage, SYSTEM_GROUP_ID, flattenGroups, MAX_GROUP_DEPTH, createLinkSelection,
     createInteractionGuard: () => ({ isActive: () => interactionActive }),
     createPlatform: () => ({
       getCurrentPage: async () => pageLoader(),
