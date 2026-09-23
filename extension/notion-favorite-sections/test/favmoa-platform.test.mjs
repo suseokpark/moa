@@ -300,8 +300,102 @@ test("normal link click focuses matching tab in current window without duplicati
   assert.equal(result.reused, true);
   assert.equal(result.tabId, 3);
   assert.deepEqual(calls.find(call => call[0] === "update"), ["update", 3, { active: true }]);
-  assert.deepEqual(calls.find(call => call[0] === "window"), ["window", 2, { focused: true }]);
+  assert.equal(calls.some(call => call[0] === "window"), false);
   assert.equal(calls.some(call => call[0] === "create"), false);
+});
+
+test("link opening starts independent tab queries together instead of waiting two response rounds", async () => {
+  const { api, platform, calls } = chromeFixture();
+  const pendingQueries = [];
+  api.tabs.query = query => {
+    calls.push(["query", query]);
+    return new Promise(resolve => pendingQueries.push(resolve));
+  };
+  const opening = platform.openLink("https://example.com/new?view=board#summary");
+  const firstWaveQueries = calls.filter(call => call[0] === "query");
+  // Resolve every request that started before either independent response.
+  pendingQueries.splice(0).forEach(resolve => resolve([]));
+  for (let index = 0; index < 10; index += 1) await Promise.resolve();
+  const openedAfterOneRound = calls.some(call => call[0] === "create");
+  // Let the pre-fix serial implementation settle too, keeping this test bounded.
+  pendingQueries.splice(0).forEach(resolve => resolve([]));
+  const result = await opening;
+  assert.equal(result.ok, true);
+  assert.deepEqual(firstWaveQueries, [["query", { active: true, lastFocusedWindow: true }], ["query", {}]]);
+  assert.equal(openedAfterOneRound, true);
+  assert.deepEqual(calls.find(call => call[0] === "create"), ["create", { url: "https://example.com/new?view=board#summary" }]);
+});
+
+test("ordinary concurrent clicks share one in-flight open and a later click can retry", async () => {
+  const { api, platform, calls } = chromeFixture();
+  const pendingCreates = [];
+  api.tabs.create = options => {
+    calls.push(["create", options]);
+    return new Promise(resolve => pendingCreates.push(resolve));
+  };
+  const first = platform.openLink("https://example.com/new");
+  const second = platform.openLink("https://example.com/new");
+  for (let index = 0; index < 10; index += 1) await Promise.resolve();
+  const createCount = calls.filter(call => call[0] === "create").length;
+  pendingCreates.splice(0).forEach(resolve => resolve({ id: 123 }));
+  assert.deepEqual(await Promise.all([first, second]), [
+    { ok: true, reused: false, tabId: 123 }, { ok: true, reused: false, tabId: 123 }
+  ]);
+  assert.equal(createCount, 1);
+  assert.equal(calls.filter(call => call[0] === "query").length, 2);
+  api.tabs.create = async () => ({ id: 124 });
+  assert.equal((await platform.openLink("https://example.com/new")).tabId, 124);
+});
+
+test("only identical ordinary URLs share an open; forced new tabs remain independent", async () => {
+  const { api, platform, calls } = chromeFixture();
+  api.tabs.create = async options => { calls.push(["create", options]); return { id: calls.length }; };
+  const page = "https://app.notion.com/p/sample/0123456789abcdef0123456789abcdef";
+  const results = await Promise.all([
+    platform.openLink(`${page}?view=one`),
+    platform.openLink(`${page}?view=two`),
+    platform.openLink(`${page}?view=one`, { newTab: true }),
+    platform.openLink(`${page}?view=one`, { newTab: true })
+  ]);
+  assert.equal(results.every(result => result.ok), true);
+  assert.equal(calls.filter(call => call[0] === "create").length, 4);
+  assert.deepEqual(calls.filter(call => call[0] === "create").map(call => call[1].url).sort(), [
+    `${page}?view=one`, `${page}?view=one`, `${page}?view=one`, `${page}?view=two`
+  ]);
+  assert.equal(calls.filter(call => call[0] === "query").length, 4);
+});
+
+test("cross-window matches still focus their window and active current-window matches take priority", async () => {
+  const crossWindow = chromeFixture([
+    { id: 1, windowId: 1, active: true, url: "https://example.com/current" },
+    { id: 2, windowId: 2, url: "https://example.com/work" }
+  ]);
+  assert.equal((await crossWindow.platform.openLink("https://example.com/work")).tabId, 2);
+  assert.deepEqual(crossWindow.calls.find(call => call[0] === "window"), ["window", 2, { focused: true }]);
+  const activeMatch = chromeFixture([
+    { id: 1, windowId: 1, url: "https://example.com/work" },
+    { id: 2, windowId: 1, active: true, url: "https://example.com/work" }
+  ]);
+  assert.equal((await activeMatch.platform.openLink("https://example.com/work")).tabId, 2);
+});
+
+test("failed in-flight opens are sanitized, clear their pending entry and never open blindly after a query failure", async () => {
+  const { api, platform, calls } = chromeFixture();
+  api.tabs.query = async () => { throw new Error("private Chrome failure details"); };
+  const results = await Promise.all([platform.openLink("https://example.com/work"), platform.openLink("https://example.com/work")]);
+  assert.equal(results.every(result => result.code === "OPEN_FAILED" && !result.error.includes("private")), true);
+  assert.equal(calls.some(call => call[0] === "create"), false);
+  api.tabs.query = async query => {
+    if (query.active) return [{ id: 1, windowId: 1, url: "https://example.com/current", active: true }];
+    throw new Error("private all-tabs query failure");
+  };
+  assert.equal((await platform.openLink("https://example.com/work")).code, "OPEN_FAILED");
+  assert.equal(calls.some(call => call[0] === "create"), false);
+  api.tabs.query = async () => [];
+  api.tabs.create = async () => { throw new Error("private create details"); };
+  assert.equal((await platform.openLink("https://example.com/work")).code, "OPEN_FAILED");
+  api.tabs.create = async () => ({ id: 500 });
+  assert.equal((await platform.openLink("https://example.com/work")).tabId, 500);
 });
 
 test("explicit new tab bypasses existing matches and unsafe URLs never open", async () => {

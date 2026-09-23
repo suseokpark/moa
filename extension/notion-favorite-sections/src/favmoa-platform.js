@@ -16,6 +16,7 @@ export function createPlatform({ chrome: chromeApi = globalThis.chrome, location
   const extension = Boolean(chromeApi?.runtime?.id && pageLocation?.protocol === "chrome-extension:");
   if (!extension && !["localhost", "127.0.0.1", "[::1]", "::1"].includes(pageLocation?.hostname)) throw new Error("데모는 로컬 개발 서버에서만 실행할 수 있습니다.");
   const subscribers = new Set();
+  const pendingOpens = new Map();
   let demoService;
   let notifyInstalled = false;
 
@@ -91,6 +92,35 @@ export function createPlatform({ chrome: chromeApi = globalThis.chrome, location
     catch { return []; }
   }
 
+  async function openExtensionLink(identified, newTab) {
+    try {
+      if (!newTab) {
+        // Both queries are independent. Keep the raw active tab's window even
+        // on chrome:// pages, without serializing two Chrome response rounds.
+        const [currentTabs, allTabs] = await Promise.all([
+          chromeApi.tabs.query({ active: true, lastFocusedWindow: true }),
+          chromeApi.tabs.query({})
+        ]);
+        const current = currentTabs[0];
+        const candidates = allTabs.filter(tab => {
+          try { return identifyUrl(tab.url).key === identified.key; }
+          catch { return false; }
+        });
+        const existing = candidates.find(tab => tab.windowId === current?.windowId && tab.active)
+          || candidates.find(tab => tab.windowId === current?.windowId) || candidates[0];
+        if (existing) {
+          await chromeApi.tabs.update(existing.id, { active: true });
+          if (existing.windowId !== current?.windowId && chromeApi.windows?.update && Number.isInteger(existing.windowId)) {
+            await chromeApi.windows.update(existing.windowId, { focused: true });
+          }
+          return { ok: true, reused: true, tabId: existing.id };
+        }
+      }
+      const created = await chromeApi.tabs.create({ url: identified.url });
+      return { ok: true, reused: false, tabId: created.id };
+    } catch { return { ok: false, code: "OPEN_FAILED", error: "페이지를 열지 못했습니다. 다시 시도해 주세요." }; }
+  }
+
   return {
     mode: extension ? "extension" : "demo",
     load: () => request({ type: "FAVMOA_GET" }),
@@ -110,23 +140,15 @@ export function createPlatform({ chrome: chromeApi = globalThis.chrome, location
         open(identified.url, "_blank", "noopener,noreferrer");
         return { ok: true, reused: false };
       }
-      try {
-        if (!newTab) {
-          // Even a chrome:// page has a usable window identity; do not lose the
-          // current-window preference just because its URL cannot be saved.
-          const current = (await chromeApi.tabs.query({ active: true, lastFocusedWindow: true }))[0];
-          const candidates = (await getOpenTabs()).filter(tab => identifyUrl(tab.url).key === identified.key);
-          const existing = candidates.find(tab => tab.windowId === current?.windowId && tab.active)
-            || candidates.find(tab => tab.windowId === current?.windowId) || candidates[0];
-          if (existing) {
-            await chromeApi.tabs.update(existing.id, { active: true });
-            if (chromeApi.windows?.update && Number.isInteger(existing.windowId)) await chromeApi.windows.update(existing.windowId, { focused: true });
-            return { ok: true, reused: true, tabId: existing.id };
-          }
-        }
-        const created = await chromeApi.tabs.create({ url: identified.url });
-        return { ok: true, reused: false, tabId: created.id };
-      } catch { return { ok: false, code: "OPEN_FAILED", error: "페이지를 열지 못했습니다. 다시 시도해 주세요." }; }
+      if (newTab) return openExtensionLink(identified, true);
+      // Coalesce only overlapping ordinary clicks on the exact URL. This is
+      // not a tab cache: every later click reads fresh Chrome state, and distinct
+      // saved Notion views retain their own URL even when page identities match.
+      if (pendingOpens.has(identified.url)) return pendingOpens.get(identified.url);
+      const opening = openExtensionLink(identified, false);
+      pendingOpens.set(identified.url, opening);
+      try { return await opening; }
+      finally { pendingOpens.delete(identified.url); }
     },
     async getBookmarkCandidates() {
       if (!extension) return { ok: true, demo: true, candidates: [{ title: "예시 참고 문서 (데모)", url: "https://example.org/reference", folderPath: "데모 북마크" }] };

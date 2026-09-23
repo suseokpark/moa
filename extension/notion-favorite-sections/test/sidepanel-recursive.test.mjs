@@ -21,7 +21,7 @@ function fixture() {
   ] };
 }
 function projectionContext(pageKey = "") {
-  const context = vm.createContext({ identifyUrl, flattenGroups, pageKey, suppressedFolds: new Set() });
+  const context = vm.createContext({ identifyUrl, flattenGroups, pageKey, suppressedFolds: new Set(), urlKeys: new Map() });
   vm.runInContext(["safeKey", "projectGroup", "linksOf", "groupMoveTargets", "isExpanded"].map(shipped).join("\n"), context);
   return context;
 }

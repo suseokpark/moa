@@ -47,7 +47,8 @@ const EXPECTED_RUNTIME_FILES = [
   "src/storage-contract.js",
   "src/theme-settings.js",
   "src/theme-store.js",
-  "src/theme.js"
+  "src/theme.js",
+  "src/tree-drag.js"
 ];
 
 test("package allowlist contains only manifest-reachable runtime files", async () => {

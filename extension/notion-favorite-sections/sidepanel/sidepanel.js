@@ -3,6 +3,7 @@ import { identifyUrl, validateCatalog, SYSTEM_GROUP_ID, flattenGroups, MAX_GROUP
 import { prepareLinkInput } from "../src/link-entry.js";
 import { findSavedPage } from "../src/link-navigation.js";
 import { createGroupColorEditor } from "../src/group-colors.js";
+import { createTreeDrag } from "../src/tree-drag.js";
 
 const $ = (id) => document.getElementById(id);
 const platform = createPlatform();
@@ -10,6 +11,10 @@ let state = null;
 let libraryId = "";
 let currentPage = null;
 let openTabs = [];
+let openTabKeys = new Set();
+const openingUrls = new Set();
+const openingCounts = new Map();
+const urlKeys = new Map();
 let pageKey = "";
 let suppressedFolds = new Set();
 let dialogSubmit = null;
@@ -18,6 +23,22 @@ let dialogReturnKeys = [];
 let dialogBusy = false;
 let mutationBusy = false;
 let refreshGeneration = 0;
+let deferredTabRender = false;
+const treeDrag = createTreeDrag({
+  getContext: () => ({ library: library(), libraryId, catalogRevision: state?.revision, busy: mutationBusy || dialogBusy || Boolean($("dialog")?.open || $("theme-dialog")?.open) }),
+  onMove: async (action, revision) => {
+    await dispatch(action, revision, "이동했습니다. 되돌리기로 취소할 수 있어요.");
+    const movedId = action.linkId || action.groupId;
+    const selector = action.linkId ? "[data-link-id]" : "[data-group-id]";
+    const target = [...document.querySelectorAll(selector)].find(item => (action.linkId ? item.dataset.linkId : item.dataset.groupId) === movedId);
+    const destinationId = action.targetGroupId || action.targetParentGroupId;
+    const destination = [...document.querySelectorAll("[data-group-id]")].find(item => item.dataset.groupId === destinationId);
+    const control = target?.querySelector(action.linkId ? "a" : ".fold") || destination?.querySelector(".fold");
+    control?.focus(); control?.scrollIntoView({ block: "nearest" });
+  },
+  announce,
+  onEnd: () => { if (deferredTabRender) { deferredTabRender = false; render(); } }
+});
 
 function node(tag, text, className) {
   const result = document.createElement(tag);
@@ -40,7 +61,14 @@ function announce(message = "", error = false) { $("status").textContent = messa
 function library() { return state?.catalog.libraries.find(item => item.id === libraryId); }
 function linksOf(value) { return flattenGroups(value).flatMap(({ group }) => group.links); }
 function allLinkCount(catalog) { return catalog.libraries.reduce((sum, item) => sum + linksOf(item).length, 0); }
-function safeKey(url) { try { return identifyUrl(url).key; } catch { return ""; } }
+function safeKey(url) {
+  if (urlKeys.has(url)) return urlKeys.get(url);
+  let key = "";
+  try { key = identifyUrl(url).key; } catch { /* Unsupported addresses are not links. */ }
+  if (urlKeys.size >= 4096) urlKeys.clear();
+  urlKeys.set(url, key);
+  return key;
+}
 function adopt(result) {
   if (result.catalog && Number.isSafeInteger(result.revision)) {
     if (state && result.revision < state.revision) return;
@@ -244,12 +272,53 @@ function foldedHeader(label, count, key, item, hasCurrent, searching, action) {
   control.append(node("span", label, "label"), node("span", String(count), "count"));
   return { control, expanded };
 }
+function setLinkOpening(anchor, busy) {
+  anchor.setAttribute("aria-busy", String(busy));
+  let indicator = anchor.querySelector(".open-indicator");
+  if (busy) {
+    if (!indicator) { indicator = node("span", "", "open-indicator"); anchor.append(indicator); }
+    if (indicator.dataset.idleText === undefined) indicator.dataset.idleText = indicator.textContent;
+    indicator.textContent = "여는 중";
+  } else if (indicator?.dataset.idleText !== undefined) {
+    indicator.textContent = indicator.dataset.idleText;
+    delete indicator.dataset.idleText;
+    if (!indicator.textContent) indicator.remove();
+  }
+}
+function updateOpeningLinks(url, busy) {
+  for (const anchor of document.querySelectorAll("#tree .link-anchor")) {
+    if (anchor.getAttribute("href") === url) setLinkOpening(anchor, busy);
+  }
+}
+async function openSavedLink(link, options = {}) {
+  if (!options.newTab && openingUrls.has(link.url)) return;
+  openingUrls.add(link.url);
+  openingCounts.set(link.url, (openingCounts.get(link.url) || 0) + 1);
+  updateOpeningLinks(link.url, true);
+  announce(`‘${link.title}’ 여는 중…`);
+  try {
+    const result = await platform.openLink(link.url, options);
+    if (!result.ok) announce(result.error, true);
+    else {
+      announce(result.reused ? "이미 열린 탭으로 이동했습니다." : "새 탭에서 열었습니다.");
+      refreshTabs().catch(error => announce(error.message, true));
+    }
+  } catch (error) { announce(error.message || "탭을 열지 못했습니다. 다시 눌러 주세요.", true); }
+  finally {
+    const remaining = openingCounts.get(link.url) - 1;
+    if (remaining) openingCounts.set(link.url, remaining);
+    else { openingCounts.delete(link.url); openingUrls.delete(link.url); updateOpeningLinks(link.url, false); }
+  }
+}
 function renderLink(link) {
-  const active = safeKey(link.url) === pageKey && pageKey;
+  const linkKey = safeKey(link.url);
+  const active = linkKey === pageKey && pageKey;
   const row = node("div", undefined, `link-row${active ? " current" : ""}`);
   row.dataset.linkId = link.id;
   const anchor = node("a", undefined, "link-anchor");
   anchor.href = link.url; anchor.rel = "noopener noreferrer"; anchor.title = `${link.title}\n${link.url}`;
+  anchor.dataset.focusKey = `open:${libraryId}:${link.id}`;
+  anchor.setAttribute("aria-describedby", "drag-help");
   if (active) anchor.setAttribute("aria-current", "page");
   const icon = link.icon || "";
   const iconHolder = node("span", undefined, "link-icon");
@@ -257,23 +326,22 @@ function renderLink(link) {
   if (icon && icon.length <= 12 && !/https?:|[<>]/i.test(icon)) iconHolder.textContent = icon;
   else iconHolder.append(uiIcon("arrow-up-right"));
   anchor.append(iconHolder, node("span", link.title, "link-title"));
-  const isOpen = openTabs.some(tab => safeKey(tab.url) === safeKey(link.url));
+  const isOpen = openTabKeys.has(linkKey);
   if (isOpen) anchor.append(node("span", active ? "현재" : "열림", "open-indicator"));
+  if (openingUrls.has(link.url)) setLinkOpening(anchor, true);
   anchor.addEventListener("click", event => {
     if (event.button !== 0) return;
     event.preventDefault();
-    platform.openLink(link.url, { newTab: event.ctrlKey || event.metaKey || event.shiftKey }).then(result => {
-      if (!result.ok) announce(result.error, true);
-      else { announce(result.reused ? "이미 열린 탭으로 이동했습니다." : "새 탭에서 열었습니다."); refreshTabs(); }
-    });
+    openSavedLink(link, { newTab: event.ctrlKey || event.metaKey || event.shiftKey });
   });
   row.append(anchor, menu(link.title, [
-    ["새 탭에서 열기", async () => { await requireResult(platform.openLink(link.url, { newTab: true })); }],
+    ["새 탭에서 열기", () => openSavedLink(link, { newTab: true })],
     ["이름·주소 수정", () => linkDialog(link)], ["다른 그룹으로 이동", () => moveDialog(link)],
     ["위로 이동", () => dispatch({ type: "reorderLink", linkId: link.id, direction: "up" })],
     ["아래로 이동", () => dispatch({ type: "reorderLink", linkId: link.id, direction: "down" })],
     ["팹모아에서 제거", () => { const revision = state.revision; confirmDialog("링크를 제거할까요?", `${link.title}\n원본 문서와 저장한 백업 파일은 그대로 둡니다.`, "제거", () => dispatch({ type: "removeLink", linkId: link.id }, revision)); }, true]
   ], "more", `link:${libraryId}:${link.id}`));
+  treeDrag.bindSource(row, { kind: "link", id: link.id });
   return row;
 }
 function renderGroup(view, searching, path = []) {
@@ -289,6 +357,12 @@ function renderGroup(view, searching, path = []) {
   const key = `g:${libraryId}:${group.id}`;
   const fold = foldedHeader(group.name, count, key, group, hasCurrent, searching, { type: "toggleGroup", groupId: group.id });
   fold.control.title = currentPath.map(item => item.name).join(" › ") + (searching ? " · 검색 중에는 하위 그룹까지 펼쳐 표시합니다." : "");
+  if (group.id !== SYSTEM_GROUP_ID) {
+    fold.control.title += " · 끌어서 다른 그룹으로 이동";
+    fold.control.setAttribute("aria-describedby", "drag-help");
+    treeDrag.bindSource(fold.control, { kind: "group", id: group.id });
+  }
+  treeDrag.bindTarget(wrapper, { groupId: group.id });
   const addActions = [["여기에 링크 추가", () => linkDialog(null, { groupId: group.id })]];
   if (currentPath.length < MAX_GROUP_DEPTH) addActions.push(["하위 그룹 추가", () => nameDialog("하위 그룹 만들기", { type: "addGroup", parentGroupId: group.id })]);
   heading.append(fold.control, menu(`${group.name}에 추가`, addActions, "plus", `add:${libraryId}:${group.id}`));
@@ -317,6 +391,8 @@ function renderGroup(view, searching, path = []) {
 }
 function render() {
   if (!state) return;
+  treeDrag.reset();
+  openTabKeys = new Set(openTabs.map(tab => safeKey(tab.url)));
   const focusKey = !$("dialog").open ? document.activeElement?.dataset.focusKey : null;
   const selectedLibrary = library();
   $("library-picker").replaceChildren();
@@ -383,7 +459,8 @@ async function refreshTabs() {
   if (page?.url) $("current-page").append(node("small", page.url));
   else $("current-page").append(node("small", "Chrome 설정 등 내부 페이지는 저장하지 않습니다."));
   $("save-current").disabled = !page;
-  render();
+  if (treeDrag.isDragging()) deferredTabRender = true;
+  else render();
 }
 function openBackupSettings() {
   $("settings").open = true;
@@ -465,6 +542,8 @@ $("dialog-form").addEventListener("submit", async event => {
   }
   finally { dialogBusy = false; $("dialog-submit").disabled = false; }
 });
+treeDrag.bindTarget($("root-drop"), { groupId: null });
+document.addEventListener("dragstart", () => { for (const menu of document.querySelectorAll(".row-menu[open]")) menu.open = false; }, true);
 $("dialog-close").addEventListener("click", closeDialog);
 $("dialog-cancel").addEventListener("click", closeDialog);
 $("dialog").addEventListener("cancel", event => { event.preventDefault(); closeDialog(); });
