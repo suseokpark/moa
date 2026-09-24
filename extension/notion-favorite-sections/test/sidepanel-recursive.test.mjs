@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import { flattenGroups, identifyUrl } from "../src/link-library.js";
+import { fixture as dialogFixture } from "../test-support/candidate-picker-fixture.mjs";
 
 const source = readFileSync(new URL("../sidepanel/sidepanel.js", import.meta.url), "utf8");
 const html = readFileSync(new URL("../sidepanel/sidepanel.html", import.meta.url), "utf8");
@@ -22,7 +23,7 @@ function fixture() {
 }
 function projectionContext(pageKey = "") {
   const context = vm.createContext({ identifyUrl, flattenGroups, pageKey, suppressedFolds: new Set(), urlKeys: new Map() });
-  vm.runInContext(["safeKey", "projectGroup", "linksOf", "groupMoveTargets", "isExpanded"].map(shipped).join("\n"), context);
+  vm.runInContext(["safeKey", "projectGroup", "linksOf", "isExpanded"].map(shipped).join("\n"), context);
   return context;
 }
 
@@ -66,10 +67,11 @@ test("current-page ancestry expands at every level unless explicitly collapsed b
 });
 
 test("group move targets omit both the source and all descendants", () => {
-  const context = projectionContext();
-  const targets = context.groupMoveTargets(fixture(), "project");
-  assert.deepEqual(Array.from(targets, item => item.group.id), ["work", "personal"]);
-  assert.deepEqual(Array.from(targets[0].path, item => item.name), ["업무"]);
+  const f = dialogFixture(); f.run('moveGroupDialog(library().groups[1])');
+  const targets = f.$("dialog-body").querySelector("select").children;
+  assert.ok(targets.some(item => item.value === ""));
+  assert.ok(targets.some(item => item.value === f.run("SYSTEM_GROUP_ID")));
+  assert.ok(targets.every(item => !["parent", "destination"].includes(item.value)));
 });
 
 test("saved-page reveal opens the complete path, preserves unrelated folds, and focuses the link", () => {
@@ -97,7 +99,8 @@ test("new sidepanel controls and payloads no longer depend on a section layer", 
   assert.doesNotMatch(source, /\b(?:sectionId|targetSectionId|getSystemSectionId|moveSectionDialog)\b/u);
   assert.doesNotMatch(html, /섹션/u);
   assert.match(source, /parentGroupId:\s*group\.id/u);
-  assert.match(source, /targetParentGroupId:\s*target\.value\s*\|\|\s*null/u);
+  // Actual root/group payloads are covered by the move-dialog behavioral tests.
+  assert.match(source, /targetParentGroupId:/u);
   assert.match(source, /menu\(`\$\{group\.name\}에 추가`, addActions, "plus",/u);
   assert.match(source, /그룹만 제거/u);
 });

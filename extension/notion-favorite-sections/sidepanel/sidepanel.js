@@ -520,62 +520,172 @@ function toggleSelectionMode() {
 function bulkMoveDialog() {
   const ids = linkSelection.selected();
   if (!ids.length || !linkSelection.isActive()) return;
-  const revision = state.revision;
-  const targetLibrary = libraryId;
-  const selected = new Set(ids);
-  const entries = flattenGroups(library());
   const visible = new Set(visibleSelectionIds());
   const hidden = ids.filter(id => !visible.has(id)).length;
-  let to, hint;
-  const countIncoming = () => entries.filter(({ group }) => group.id !== to.group.value)
-    .reduce((sum, { group }) => sum + group.links.filter(link => selected.has(link.id)).length, 0);
-  const updateHint = () => {
-    const incoming = countIncoming();
-    hint.textContent = incoming ? `${incoming}개 이동 · 이미 이 그룹에 있는 ${ids.length - incoming}개는 그대로 둡니다.` : "선택한 링크가 모두 이 그룹에 있습니다. 다른 그룹을 선택하세요.";
-    $("dialog-submit").disabled = !incoming;
-  };
-  showDialog("선택한 링크 이동", "이동", body => {
-    body.append(node("p", `${ids.length}개 링크를 함께 옮깁니다.${hidden ? ` 검색·접힘으로 화면 밖에 있는 ${hidden}개도 포함됩니다.` : ""} 원본 페이지는 바뀌지 않습니다.`, "form-note"));
-    to = destinationFields(body);
-    hint = node("p", "", "form-note"); hint.setAttribute("aria-live", "polite");
-    body.append(hint);
-    to.group.addEventListener("change", updateHint);
-    updateHint();
-  }, async () => {
-    const count = countIncoming();
-    if (!count) return false;
-    const targetGroupId = to.group.value;
-    await dispatch({ type: "moveLinks", libraryId: targetLibrary, linkIds: ids, targetGroupId }, revision, `${count}개 링크를 이동했습니다. 한 번의 되돌리기로 복구할 수 있어요.`);
-    linkSelection.stop();
-    $("search").value = "";
-    dialogOrigin = $("select-mode"); dialogReturnKeys = [];
-    render();
-    runAfterTreeRender(() => {
-      const target = [...document.querySelectorAll("[data-group-id]")].find(group => group.dataset.groupId === targetGroupId)?.querySelector(".fold");
-      if (!target) return;
-      if ($("dialog").open) dialogOrigin = target;
-      else target.focus();
-      target.scrollIntoView({ block: "nearest" });
-    });
-    return true;
-  });
-}
-function groupMoveTargets(selectedLibrary, groupId) {
-  return flattenGroups(selectedLibrary).filter(({ path }) => !path.some(group => group.id === groupId));
+  return treeMoveDialog({ linkIds: ids, hidden });
 }
 function moveGroupDialog(group) {
-  const revision = state.revision;
-  const currentParent = flattenGroups(library()).find(item => item.group.id === group.id)?.parent;
-  let target;
-  showDialog("그룹 이동", "이동", body => {
-    body.append(node("p", `${group.name} 안의 링크와 하위 그룹을 함께 옮깁니다.`, "form-note"));
-    target = selectField(body, "옮길 그룹");
-    option(target, "보관함 맨 위", "", !currentParent);
-    for (const value of groupMoveTargets(library(), group.id)) {
-      option(target, value.path.map(item => item.name).join(" › "), value.group.id, value.group.id === currentParent?.id);
+  return treeMoveDialog({ groupId: group.id });
+}
+function treeMoveDialog({ groupId, linkIds = [], hidden = 0 }) {
+  const targetLibrary = libraryId;
+  const bulk = !groupId, selected = new Set(linkIds);
+  const originalCatalog = state.catalog;
+  let revision = state.revision, catalog = state.catalog;
+  let target, hint, reviewBox, reviewNote, reviewButton, comparison, acknowledge;
+  let needsReview = false, reviewing = false, reviewed = false, needsAcknowledgement = false;
+  const snapshot = value => {
+    const owner = value.libraries.find(item => item.id === targetLibrary);
+    if (!owner) return { signature: "missing", text: "보관함을 찾을 수 없습니다." };
+    const groups = flattenGroups(owner).filter(item => bulk || item.path.some(group => group.id === groupId));
+    const rows = groups.flatMap(({ group, path }) => {
+      const route = path.map(item => [item.id, item.name]);
+      const name = path.map(item => item.name).join(" › ");
+      return [
+        ...(!bulk ? [{ data: [group.id, group.color || null, route], text: `그룹 · ${name}${group.color ? ` · ${group.color}` : ""}` }] : []),
+        ...group.links.filter(link => !bulk || selected.has(link.id)).map(link => ({ data: [link.id, link.title, link.url, route], text: `링크 · ${link.title}\n${link.url}\n위치 · ${name}` }))
+      ];
+    });
+    return { signature: JSON.stringify([owner.name, rows.map(row => row.data)]), text: `보관함 · ${owner.name}\n${bulk ? `선택한 링크 ${rows.length}개` : `이동할 그룹 ${groups.length}개 · 링크 ${rows.length - groups.length}개`}\n${rows.map(row => row.text).join("\n")}` };
+  };
+  const original = snapshot(originalCatalog);
+  let inspected = original;
+  let indexedCatalog, indexedEntries = [], byGroupId = new Map(), sourceHeight = 1;
+  const entries = () => {
+    if (indexedCatalog !== catalog) {
+      const value = catalog.libraries.find(item => item.id === targetLibrary);
+      indexedEntries = value ? flattenGroups(value) : [];
+      byGroupId = new Map(indexedEntries.map(item => [item.group.id, item]));
+      const source = byGroupId.get(groupId);
+      sourceHeight = source ? indexedEntries.reduce((maximum, item) => item.path.some(group => group.id === groupId) ? Math.max(maximum, item.path.length - source.path.length + 1) : maximum, 1) : 1;
+      indexedCatalog = catalog;
     }
-    body.append(node("p", "자기 자신과 하위 그룹은 이동 위치에서 제외됩니다.", "form-note"));
-  }, () => dispatch({ type: "moveGroup", groupId: group.id, targetParentGroupId: target.value || null }, revision));
+    return indexedEntries;
+  };
+  const sourceProblem = () => {
+    if (!catalog.libraries.some(item => item.id === targetLibrary)) return "원래 보관함이 삭제됐습니다. 다른 보관함으로 대체하지 않습니다. 취소 후 다시 시작해 주세요.";
+    const groups = entries();
+    if (!bulk) return groups.some(item => item.group.id === groupId) && groupId !== SYSTEM_GROUP_ID ? "" : "이동할 그룹을 찾을 수 없거나 이동할 수 없는 그룹입니다. 취소 후 다시 선택해 주세요.";
+    const existing = new Set(groups.flatMap(({ group }) => group.links.map(link => link.id)));
+    const missing = linkIds.filter(id => !existing.has(id)).length;
+    return missing ? `처음 선택한 링크 중 ${missing}개를 찾을 수 없습니다. 남은 일부만 이동하지 않습니다. 취소 후 목록에서 다시 선택해 주세요.` : "";
+  };
+  const available = () => !sourceProblem();
+  const destinationProblem = value => {
+    entries(); const destination = byGroupId.get(value);
+    if ((bulk || value !== "") && !destination) return "선택한 목적지를 사용할 수 없습니다. 옮길 그룹을 직접 다시 선택해 주세요.";
+    if (!bulk && destination?.path.some(group => group.id === groupId)) return "자기 자신이나 하위 그룹으로 이동할 수 없습니다. 다른 목적지를 선택해 주세요.";
+    if (!bulk && (destination?.path.length || 0) + sourceHeight > MAX_GROUP_DEPTH) return `하위 그룹까지 포함하면 ${MAX_GROUP_DEPTH}단계를 넘습니다. 더 얕은 목적지를 선택해 주세요.`;
+    return "";
+  };
+  const fillTargets = value => {
+    target.replaceChildren();
+    if (!bulk) option(target, "보관함 최상위", "", value === "");
+    for (const entry of entries().filter(item => !destinationProblem(item.group.id))) {
+      option(target, entry.path.map(item => item.name).join(" › "), entry.group.id, entry.group.id === value);
+    }
+    if (![...target.children].some(item => item.value === value)) {
+      option(target, "이전 목적지 · 사용할 수 없음 — 다른 그룹을 선택하세요", value, true);
+      target.children[target.children.length - 1].disabled = true;
+    }
+    target.value = value;
+  };
+  const destinationSnapshot = value => {
+    const owner = value.libraries.find(item => item.id === targetLibrary);
+    const path = owner && flattenGroups(owner).find(item => item.group.id === target.value)?.path;
+    return { signature: JSON.stringify([owner?.name, target.value, path?.map(item => [item.id, item.name])]),
+      text: !bulk && target.value === "" ? `${owner?.name || ""} › 보관함 최상위` : path ? `${owner.name} › ${path.map(item => item.name).join(" › ")}` : "해당 목적지 없음" };
+  };
+  const refreshReview = () => {
+    acknowledge.checked = false;
+    if (!reviewed) return;
+    const previousTarget = destinationSnapshot(originalCatalog), latestTarget = destinationSnapshot(catalog);
+    needsAcknowledgement = available() && (original.signature !== inspected.signature || previousTarget.signature !== latestTarget.signature);
+    comparison.replaceChildren();
+    if (available()) for (const [label, value] of [["처음 이동 범위", original.text], ["최신 이동 범위", inspected.text], ["처음 목적지", previousTarget.text], ["최신 목적지", latestTarget.text]]) comparison.append(node("dt", label), node("dd", value));
+    acknowledge.parentElement.hidden = !needsAcknowledgement;
+    reviewNote.textContent = sourceProblem() || (needsReview ? "최신 목록을 먼저 검토해 주세요. 아직 이동하지 않았습니다." : needsAcknowledgement ? "이동할 내용이나 경로·순서 또는 목적지가 바뀌었습니다. 이름이 같아도 위치가 다를 수 있습니다. 비교 내용을 확인하고 동의한 뒤 이동해 주세요." : "최신 목록을 확인했습니다. 이동 범위를 확인한 뒤 이동을 눌러 주세요. 확인만으로는 이동하지 않습니다.");
+  };
+  const countIncoming = () => {
+    const destinationId = target.value;
+    return entries().filter(({ group }) => group.id !== destinationId)
+      .reduce((sum, { group }) => sum + group.links.filter(link => selected.has(link.id)).length, 0);
+  };
+  const moveCount = () => bulk ? countIncoming() : Number((entries().find(item => item.group.id === groupId)?.parent?.id || "") !== target.value);
+  const updateControls = () => {
+    const count = moveCount();
+    const problem = sourceProblem() || destinationProblem(target.value);
+    hint.textContent = problem || (bulk ? (count ? `${count}개 이동 · 이미 이 그룹에 있는 ${linkIds.length - count}개는 그대로 둡니다.` : "선택한 링크가 모두 이 그룹에 있습니다. 다른 그룹을 선택하세요.") : count ? "링크와 하위 그룹을 함께 이동합니다." : "이미 이 위치에 있는 그룹입니다. 다른 목적지를 선택하세요.");
+    $("dialog-submit").disabled = needsReview || reviewing || !count || Boolean(problem) || (needsAcknowledgement && !acknowledge.checked);
+    reviewButton.disabled = reviewing; acknowledge.disabled = reviewing;
+  };
+  const submit = async () => {
+    if (needsReview || reviewing || !available() || destinationProblem(target.value) || (needsAcknowledgement && !acknowledge.checked)) return false;
+    const count = moveCount();
+    if (!count) return false;
+    const destinationId = target.value;
+    try {
+      const action = bulk ? { type: "moveLinks", linkIds, targetGroupId: destinationId } : { type: "moveGroup", groupId, targetParentGroupId: destinationId || null };
+      await dispatch({ ...action, libraryId: targetLibrary }, revision, bulk ? `${count}개 링크를 이동했습니다. 한 번의 되돌리기로 복구할 수 있어요.` : "그룹을 이동했습니다. 되돌리기로 취소할 수 있어요.");
+      if (bulk) {
+        linkSelection.stop(); $("search").value = "";
+        dialogOrigin = $("select-mode"); dialogReturnKeys = []; libraryId = targetLibrary; render();
+        runAfterTreeRender(() => {
+          const control = [...document.querySelectorAll("[data-group-id]")].find(group => group.dataset.groupId === destinationId)?.querySelector(".fold");
+          if (!control) return;
+          if ($("dialog").open) dialogOrigin = control; else control.focus();
+          control.scrollIntoView({ block: "nearest" });
+        });
+      } else if (libraryId !== targetLibrary) { libraryId = targetLibrary; render(); }
+      return true;
+    } catch (error) {
+      if (error.code === "CONFLICT") {
+        needsReview = true; acknowledge.checked = false; reviewBox.hidden = false;
+        reviewNote.textContent = "다른 화면에서 목록이 바뀌었습니다. 이동 위치는 유지했습니다. 최신 이동 범위를 먼저 검토해 주세요.";
+      }
+      throw error;
+    }
+  };
+  submit.afterSubmit = () => { updateControls(); if (needsReview && !reviewing) reviewButton.focus(); };
+  const reviewLatest = async () => {
+    if (reviewing || dialogBusy || !$("dialog").open || dialogSubmit !== submit) return;
+    reviewing = true; needsReview = true; acknowledge.checked = false; target.disabled = true;
+    reviewBox.setAttribute("aria-busy", "true"); $("dialog-error").textContent = ""; updateControls();
+    try {
+      const result = await platform.load();
+      if (!$("dialog").open || dialogSubmit !== submit) return;
+      if (!result?.ok || !Number.isSafeInteger(result.revision) || result.revision < Math.max(revision, state.revision)) throw new Error("Invalid review snapshot");
+      catalog = validateCatalog(result.catalog); revision = result.revision; adopt({ ...result, catalog });
+      fillTargets(target.value);
+      inspected = snapshot(catalog); reviewed = true; needsReview = false;
+      refreshReview();
+    } catch {
+      if (!$("dialog").open || dialogSubmit !== submit) return;
+      reviewNote.textContent = "최신 목록을 확인하지 못했습니다. 선택은 유지했습니다. 다시 검토해 주세요.";
+    } finally {
+      if ($("dialog").open && dialogSubmit === submit) {
+        reviewing = false; target.disabled = false; reviewBox.setAttribute("aria-busy", "false"); updateControls();
+        (needsReview ? reviewButton : needsAcknowledgement ? acknowledge : target).focus();
+      }
+    }
+  };
+  showDialog(bulk ? "선택한 링크 이동" : "그룹 이동", "이동", body => {
+    const source = entries().find(item => item.group.id === groupId);
+    body.append(node("p", bulk ? `${linkIds.length}개 링크를 함께 옮깁니다.${hidden ? ` 검색·접힘으로 화면 밖에 있는 ${hidden}개도 포함됩니다.` : ""} 원본 페이지는 바뀌지 않습니다.` : source ? `${source.group.name} 안의 링크와 하위 그룹을 함께 옮깁니다.` : "이동할 그룹을 찾을 수 없습니다.", "form-note"));
+    target = selectField(body, "옮길 그룹");
+    fillTargets(bulk ? entries()[0]?.group.id || "" : source?.parent?.id || "");
+    hint = node("p", "", "form-note"); hint.setAttribute("aria-live", "polite"); body.append(hint);
+    target.addEventListener("change", () => { refreshReview(); updateControls(); });
+    reviewBox = node("div", undefined, "edit-review move-review"); reviewBox.hidden = true;
+    reviewNote = node("p", "", "form-note move-review-note"); reviewNote.setAttribute("role", "status"); reviewNote.setAttribute("aria-atomic", "true");
+    reviewButton = button("선택 유지하고 최신 목록 검토", reviewLatest, "quiet-button edit-review-button move-review-button");
+    comparison = node("dl", undefined, "edit-review-comparison move-review-comparison");
+    const acknowledgement = node("label", undefined, "edit-review-acknowledgement"); acknowledgement.hidden = true;
+    acknowledge = node("input"); acknowledge.type = "checkbox"; acknowledge.className = "edit-review-ack move-review-ack";
+    acknowledge.addEventListener("change", updateControls);
+    acknowledgement.append(acknowledge, node("span", "최신 이동 범위와 목적지를 확인했고, 이 내용대로 이동합니다."));
+    reviewBox.append(reviewNote, reviewButton, comparison, acknowledgement); body.append(reviewBox); updateControls();
+  }, submit);
 }
 function positionMenu(details) {
   if (!details.open) return;
