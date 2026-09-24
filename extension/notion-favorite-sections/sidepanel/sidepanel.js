@@ -188,8 +188,81 @@ function destinationFields(parent, groupId) {
 function nameDialog(title, action, current = "") {
   return metadataDialog({ title, action, current });
 }
-function confirmDialog(title, description, submit, callback) {
-  showDialog(title, submit, body => body.append(node("p", description, "form-note")), callback);
+function legacyImportDialog() {
+  let revision = state.revision;
+  let needsReview = false, reviewing = false, reviewed = false;
+  let comparison, reviewNote, reviewButton, acknowledge;
+  const describeDestination = catalog => {
+    comparison.replaceChildren();
+    comparison.append(node("dt", reviewed ? "최신 가져오기 대상" : "현재 가져오기 대상"),
+      node("dd", `보관함 ${catalog.libraries.length}개 · 링크 ${allLinkCount(catalog)}개 · 이전 기록 ${catalog.migratedLegacyKeys.length}개`));
+    const details = node("details"), contents = node("dd");
+    details.append(node("summary", "현재 보관함 목록 보기"), node("p", catalog.libraries.map(item => `${item.name} · 그룹 ${flattenGroups(item).length}개 · 링크 ${linksOf(item).length}개`).join("\n")));
+    contents.append(details); comparison.append(contents);
+  };
+  const updateControls = () => {
+    $("dialog-submit").disabled = reviewing || needsReview || (reviewed && !acknowledge.checked);
+    reviewButton.disabled = reviewing; acknowledge.disabled = reviewing;
+  };
+  const submit = async () => {
+    if (reviewing || needsReview || (reviewed && !acknowledge.checked)) return false;
+    try {
+      const result = await requireResult(platform.importLegacy(revision)); adopt(result);
+      const warnings = result.warnings?.length || 0;
+      announce(result.importedLibraries
+        ? `${result.importedLibraries}개 보관함 · ${result.importedLinks}개 링크를 가져왔습니다.${warnings ? ` 확인이 필요한 항목 ${warnings}개가 있습니다. 원본은 유지했습니다.` : ""}`
+        : warnings ? `새로 가져온 보관함이 없습니다. 확인이 필요한 항목 ${warnings}개가 있습니다. 원본은 유지했습니다. 기존 확장을 삭제하지 말고 저장 데이터 형식·한도를 확인해 주세요.`
+          : "이 확장에 가져올 새 Moa 목록이 없습니다. 현재 목록의 이전 기록에 있는 워크스페이스는 중복 복사하지 않습니다. 이전 ID의 목록은 기존 0.1.10에서 JSON으로 내보낸 뒤 ‘JSON 백업 불러오기’로 옮겨주세요. 기존 확장을 삭제하지 마세요.", Boolean(warnings));
+      return true;
+    } catch (error) {
+      if (error.code === "CONFLICT") {
+        needsReview = true; acknowledge.checked = false;
+        reviewNote.textContent = "다른 화면에서 대상 목록이 바뀌었습니다. 아직 가져오지 않았습니다. 최신 대상 목록을 검토한 뒤 별도로 실행해 주세요.";
+      }
+      throw error;
+    }
+  };
+  submit.afterSubmit = () => { updateControls(); if (needsReview && !reviewing) reviewButton.focus(); };
+  const reviewLatest = async () => {
+    if (reviewing || dialogBusy || !$("dialog").open || dialogSubmit !== submit) return;
+    reviewing = true; needsReview = true; acknowledge.checked = false;
+    reviewNote.setAttribute("aria-busy", "true"); $("dialog-error").textContent = ""; updateControls();
+    try {
+      // Only the destination catalog is read here. Legacy originals are read
+      // by the service on the user's separate import, not previewed or frozen.
+      const result = await platform.load();
+      if (!$("dialog").open || dialogSubmit !== submit) return;
+      if (!result?.ok || !Number.isSafeInteger(result.revision) || result.revision < Math.max(revision, state.revision)) throw new Error("Invalid legacy destination review");
+      const catalog = validateCatalog(result.catalog);
+      revision = result.revision; reviewed = true;
+      adopt({ ...result, catalog }); describeDestination(catalog);
+      needsReview = false; acknowledge.parentElement.hidden = false;
+      reviewNote.textContent = "최신 대상 목록만 확인했습니다. 원본 내용과 가져올 개수는 아직 조회하지 않았습니다. 아래 설명에 동의한 뒤 별도로 가져오기를 눌러 주세요. 검토만으로 저장하지 않습니다.";
+    } catch {
+      if (!$("dialog").open || dialogSubmit !== submit) return;
+      needsReview = true;
+      reviewNote.textContent = "최신 대상 목록을 확인하지 못했습니다. 아무것도 변경하지 않았습니다. 다시 검토해 주세요.";
+    } finally {
+      if ($("dialog").open && dialogSubmit === submit) {
+        reviewing = false; reviewNote.setAttribute("aria-busy", "false"); updateControls();
+        (needsReview ? reviewButton : acknowledge).focus();
+      }
+    }
+  };
+  showDialog("기존 Moa 목록을 가져올까요?", "가져오기", body => {
+    body.append(node("p", "이 확장에 남아 있는 기존 Notion 워크스페이스별 목록을 새 보관함으로 복사합니다. 현재 보관함과 원본 저장 데이터는 유지하며 자동 이전이나 동기화는 하지 않습니다.", "form-note"));
+    comparison = node("dl", undefined, "edit-review-comparison legacy-destination"); describeDestination(state.catalog); body.append(comparison);
+    body.append(node("p", "원본 목록은 가져오기 실행 시 읽습니다. 이 화면은 현재 대상 보관함만 확인하며 원본 내용·가져올 개수의 미리보기가 아닙니다. 현재 목록에 이전 기록이 남은 워크스페이스는 중복으로 가져오거나 변경사항을 동기화하지 않습니다.", "form-note"));
+    const reviewBox = node("div", undefined, "edit-review legacy-review");
+    reviewNote = node("p", "필요하면 최신 대상 목록을 다시 읽어 확인할 수 있습니다.", "form-note legacy-review-note");
+    reviewNote.setAttribute("role", "status"); reviewNote.setAttribute("aria-atomic", "true");
+    reviewButton = button("최신 대상 목록 검토", reviewLatest, "quiet-button edit-review-button legacy-review-button");
+    const confirmation = node("label", undefined, "edit-review-acknowledgement"); confirmation.hidden = true;
+    acknowledge = node("input"); acknowledge.type = "checkbox"; acknowledge.className = "edit-review-ack legacy-review-ack";
+    acknowledge.addEventListener("change", updateControls);
+    confirmation.append(acknowledge, node("span", "최신 대상 목록을 확인했습니다. 실행할 때 읽는 기존 Moa 원본을 새 보관함으로 복사합니다."));
+    reviewBox.append(reviewNote, reviewButton, confirmation); body.append(reviewBox); updateControls();
+  }, submit);
 }
 function destructiveDialog(action) {
   const targetLibrary = action.libraryId || libraryId;
@@ -1423,14 +1496,7 @@ $("backup-shortcut").addEventListener("click", openBackupSettings);
 $("library-picker").addEventListener("change", event => { libraryId = event.target.value; suppressedFolds.clear(); render(); });
 $("search").addEventListener("input", render);
 $("undo").addEventListener("click", async () => { try { adopt(await requireResult(platform.undo(state.revision))); announce("마지막 내용 편집을 되돌렸습니다. 직접 접고 펼친 상태는 유지됩니다."); } catch (error) { announce(error.message, true); } });
-$("import-legacy").addEventListener("click", () => {
-  const revision = state.revision;
-  confirmDialog("기존 Moa 목록을 가져올까요?", "이 확장에 남아 있는 기존 Notion 워크스페이스별 목록을 새 보관함으로 복사합니다. Notion 내부 메뉴는 종료되었지만 원본 저장 데이터는 삭제하지 않습니다. 자동 이전이나 동기화는 하지 않습니다.", "가져오기", async () => {
-    const result = await requireResult(platform.importLegacy(revision)); adopt(result);
-    announce(result.importedLibraries ? `${result.importedLibraries}개 보관함 · ${result.importedLinks}개 링크를 가져왔습니다.${result.warnings?.length ? ` 확인이 필요한 항목 ${result.warnings.length}개가 있습니다.` : ""}` : "이 확장에 가져올 새 Moa 목록이 없습니다. 이전 ID의 목록은 기존 0.1.10에서 JSON으로 내보낸 뒤 ‘JSON 백업 불러오기’로 옮겨주세요. 기존 확장을 삭제하지 마세요.");
-    return true;
-  });
-});
+$("import-legacy").addEventListener("click", legacyImportDialog);
 $("import-bookmarks").addEventListener("click", () => chooseBookmarks().catch(error => announce(error.message, true)));
 $("export-backup").addEventListener("click", exportBackup);
 $("restore-previous-backup").addEventListener("click", () => {
