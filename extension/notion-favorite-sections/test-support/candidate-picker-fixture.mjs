@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { applyCatalogAction, createCatalog, flattenGroups, identifyUrl, validateCatalog, MAX_GROUP_DEPTH, SYSTEM_GROUP_ID } from "../src/link-library.js";
 import { createLinkSelection } from "../src/link-selection.js";
+import { prepareLinkInput } from "../src/link-entry.js";
 import { findSavedPage } from "../src/link-navigation.js";
 import * as candidatePreparation from "../src/open-tab-candidates.js";
 
@@ -120,7 +121,7 @@ export function fixture(tabs = defaults, { bookmarks = false } = {}) {
   catalog.libraries.push({ id: "other-library", name: "Other library", groups: [{ id: SYSTEM_GROUP_ID, name: "Other group", links: [], groups: [], collapsed: false }] });
   const context = vm.createContext({
     document, window: { addEventListener() {} }, identifyUrl, findSavedPage, createLinkSelection, ...candidatePreparation,
-    flattenGroups, validateCatalog, MAX_GROUP_DEPTH, SYSTEM_GROUP_ID,
+    flattenGroups, validateCatalog, prepareLinkInput, MAX_GROUP_DEPTH, SYSTEM_GROUP_ID,
     createInteractionGuard: () => ({ isActive: () => interactionActive }),
     createTreeDrag: () => ({ bindSource() {}, bindTarget() {}, reset() {}, isDragging: () => false }),
     createPlatform: () => ({

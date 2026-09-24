@@ -224,10 +224,69 @@ function groupColorDialog(group) {
     finally { editor.setBusy(false); }
   });
 }
-function linkDialog(link = null, destination = {}) {
-  const revision = state.revision;
-  const targetLibrary = libraryId;
-  let title, url, to;
+function linkDialog(link = null, destination = {}, { move = false } = {}) {
+  let revision = state.revision;
+  let targetLibrary = libraryId;
+  let catalog = state.catalog;
+  let needsReview = false, reviewing = false, needsAcknowledgement = false;
+  let title, url, to, location, locationSummary, reviewBox, reviewNote, comparison, acknowledge, reviewButton, reviewLibrary;
+  const target = () => catalog.libraries.find(item => item.id === targetLibrary);
+  const entry = () => target() && flattenGroups(target()).find(({ group }) => group.links.some(item => item.id === link?.id));
+  const pathText = value => value ? value.path.map(group => group.name).join(" › ") : "";
+  const pathIdentity = value => JSON.stringify(value?.path.map(group => group.id) || []);
+  const originalEntry = entry();
+  const original = link?.id ? { title: link.title, url: link.url, path: pathText(originalEntry), pathId: pathIdentity(originalEntry), groupId: originalEntry?.group.id } : null;
+  const validTarget = () => !!target() && (!link?.id || !!entry()) &&
+    (!to || flattenGroups(target()).some(({ group }) => group.id === to.group.value));
+  const updateLocation = () => {
+    if (locationSummary) locationSummary.textContent = `저장 위치 · ${to.group.selectedOptions[0]?.textContent || "그룹을 선택해 주세요"}`;
+  };
+  const updateControls = () => {
+    $("dialog-submit").disabled = needsReview || reviewing || !validTarget() || (needsAcknowledgement && !acknowledge.checked);
+    reviewButton.disabled = reviewing;
+    acknowledge.disabled = reviewing;
+    reviewLibrary.disabled = reviewing;
+    if (to) to.group.disabled = reviewing || !target();
+    updateLocation();
+  };
+  const refreshGroups = groupId => {
+    if (!to) return;
+    const groups = target() ? flattenGroups(target()) : [];
+    const retained = groups.some(({ group }) => group.id === groupId);
+    to.group.replaceChildren();
+    if (!retained) option(to.group, target() ? "저장할 그룹을 선택해 주세요" : "먼저 보관함을 선택해 주세요", "", true);
+    for (const value of groups) option(to.group, pathText(value), value.group.id, retained && value.group.id === groupId);
+    if (location) location.open = true;
+    updateLocation();
+  };
+  const describeReview = () => {
+    comparison.replaceChildren(); needsAcknowledgement = false; acknowledge.checked = false; acknowledge.parentElement.hidden = true;
+    let pathChanged = false;
+    if (!target() || (link?.id && !entry())) {
+      reviewNote.textContent = link?.id
+        ? "기존 링크 또는 보관함이 삭제되어 수정·이동할 수 없습니다. 입력은 유지했습니다. 취소 후 최신 목록을 확인해 주세요. 자동으로 다시 만들지 않습니다."
+        : "기존 보관함이 삭제됐습니다. 입력은 유지했습니다. 저장할 보관함과 그룹을 직접 선택해 주세요.";
+      return;
+    }
+    if (link?.id) {
+      const latestEntry = entry();
+      const latest = latestEntry.group.links.find(item => item.id === link.id);
+      const latestPath = pathText(latestEntry);
+      pathChanged = pathIdentity(latestEntry) !== original.pathId || latestPath !== original.path;
+      needsAcknowledgement = latest.title !== original.title || latest.url !== original.url || pathChanged;
+      for (const [label, value] of [
+        ["처음 열었을 때", `${original.title}\n${original.url}\n${original.path}`],
+        ["최신 저장 내용", `${latest.title}\n${latest.url}\n${latestPath}`]
+      ]) comparison.append(node("dt", label), node("dd", value));
+      if (pathChanged && latestPath === original.path) comparison.append(node("dt", "위치 변경"), node("dd", "표시 이름은 같지만 다른 상위 그룹으로 이동했습니다."));
+      acknowledge.parentElement.hidden = !needsAcknowledgement;
+    }
+    reviewNote.textContent = `보관함 · ${target().name}\n` + (needsAcknowledgement
+      ? "다른 화면에서 링크의 내용이나 위치가 바뀌었습니다. 아래 비교 내용을 확인하고 직접 동의한 뒤 저장해 주세요. 내 입력은 그대로입니다."
+      : "최신 목록을 확인했습니다. 입력과 저장할 위치를 검토한 뒤 아래 저장 버튼을 눌러 주세요. 확인만으로는 저장하지 않습니다.");
+    if (pathChanged) reviewNote.textContent += " 그룹 경로가 바뀌었습니다.";
+    if (to && !to.group.value) reviewNote.textContent += " 기존 목적지가 없어졌습니다. 그룹을 직접 선택해 주세요.";
+  };
   const clearFieldError = control => {
     if (control.getAttribute("aria-invalid") !== "true") return;
     control.removeAttribute("aria-invalid");
@@ -248,39 +307,108 @@ function linkDialog(link = null, destination = {}) {
       throw error;
     }
   };
-  showDialog(link?.id ? "링크 수정" : "링크 담기", link?.id ? "수정" : "담기", body => {
-    url = field(body, "웹 주소", link?.url || "", { maxLength: 4096 });
-    url.inputMode = "url"; url.autocapitalize = "off"; url.spellcheck = false;
-    url.placeholder = "example.com 또는 https://…";
-    title = field(body, "이름 (선택)", link?.title || "", { required: false, maxLength: 300 });
-    title.placeholder = "비워두면 사이트 주소로 저장";
-    for (const control of [url, title]) control.addEventListener("input", () => clearFieldError(control));
-    if (!link?.id) {
-      const location = node("details", undefined, "destination-picker");
-      const summary = node("summary");
-      const fields = node("div");
-      location.append(summary, fields); body.append(location);
-      to = destinationFields(fields, destination.groupId);
-      const updateLocation = () => { summary.textContent = `저장 위치 · ${to.group.selectedOptions[0]?.textContent}`; };
-      to.group.addEventListener("change", updateLocation);
-      updateLocation();
+  const submit = async () => {
+    if (needsReview || reviewing || !validTarget() || (needsAcknowledgement && !acknowledge.checked)) return false;
+    let action;
+    if (move) action = { type: "moveLink", libraryId: targetLibrary, linkId: link.id, targetGroupId: to.group.value };
+    else {
+      for (const control of [url, title]) clearFieldError(control);
+      // Validate the address first so an optional title error never blames it.
+      validateField(url, { url: url.value });
+      const input = validateField(title, { title: title.value, url: url.value });
+      action = link?.id
+        ? { type: "updateLink", libraryId: targetLibrary, linkId: link.id, ...input }
+        : { type: "addLink", libraryId: targetLibrary, groupId: to.group.value, link: input };
     }
+    try {
+      const saved = await dispatch(action, revision, move ? "링크를 이동했습니다." : link?.id ? "링크를 수정했습니다." : "링크를 담았습니다. 잘못 담았다면 되돌리기를 누르세요.");
+      if (saved && libraryId !== targetLibrary) { libraryId = targetLibrary; render(); }
+      return saved;
+    } catch (error) {
+      if (error.code === "CONFLICT") {
+        needsReview = true; acknowledge.checked = false; reviewBox.hidden = false;
+        reviewNote.textContent = "다른 화면에서 목록이 바뀌었습니다. 입력은 유지했습니다. 최신 내용과 저장할 위치를 먼저 검토해 주세요.";
+      }
+      throw error;
+    }
+  };
+  // The shared busy handler restores old disabled flags before this callback.
+  submit.afterSubmit = () => { updateControls(); if (needsReview && !reviewing) reviewButton.focus(); };
+  const reviewLatest = async () => {
+    if (reviewing || dialogBusy || !$("dialog").open || dialogSubmit !== submit) return;
+    reviewing = true; needsReview = true; acknowledge.checked = false;
+    const disabled = new Map();
+    for (const control of $("dialog-body").querySelectorAll("input,select,button")) { disabled.set(control, control.disabled); control.disabled = true; }
+    reviewBox.setAttribute("aria-busy", "true");
+    reviewNote.textContent = "입력은 유지하고 최신 저장 목록을 확인하고 있어요…";
+    $("dialog-error").textContent = ""; updateControls();
+    try {
+      const result = await platform.load();
+      if (!$("dialog").open || dialogSubmit !== submit) return;
+      if (!result?.ok || !Number.isSafeInteger(result.revision) || result.revision < Math.max(revision, state.revision)) throw new Error("Invalid review snapshot");
+      const latest = validateCatalog(result.catalog);
+      const groupId = to?.group.value;
+      catalog = latest; revision = result.revision;
+      // Bind the edit/move to its original library even when adopt() falls back.
+      adopt({ ...result, catalog });
+      if (!target() && !link?.id) { targetLibrary = ""; reviewLibrary.parentElement.hidden = false; }
+      reviewLibrary.replaceChildren();
+      option(reviewLibrary, "저장할 보관함을 선택해 주세요", "", !targetLibrary);
+      for (const value of catalog.libraries) option(reviewLibrary, value.name, value.id, value.id === targetLibrary);
+      refreshGroups(groupId); describeReview(); needsReview = false;
+    } catch {
+      if (!$("dialog").open || dialogSubmit !== submit) return;
+      reviewNote.textContent = "최신 목록을 확인하지 못했습니다. 입력은 유지했습니다. 다시 검토해 주세요.";
+    } finally {
+      if ($("dialog").open && dialogSubmit === submit) {
+        for (const [control, wasDisabled] of disabled) control.disabled = wasDisabled;
+        reviewing = false; reviewBox.setAttribute("aria-busy", "false"); updateControls();
+        if (needsReview || (link?.id && !entry())) reviewButton.focus();
+        else if (!target()) reviewLibrary.focus();
+        else if (needsAcknowledgement) acknowledge.focus();
+        else (to?.group || title).focus();
+      }
+    }
+  };
+  showDialog(move ? "링크 이동" : link?.id ? "링크 수정" : "링크 담기", move ? "이동" : link?.id ? "수정" : "담기", body => {
+    if (move) body.append(node("p", link.title, "form-note"));
+    else {
+      url = field(body, "웹 주소", link?.url || "", { maxLength: 4096 });
+      url.inputMode = "url"; url.autocapitalize = "off"; url.spellcheck = false;
+      url.placeholder = "example.com 또는 https://…";
+      title = field(body, "이름 (선택)", link?.title || "", { required: false, maxLength: 300 });
+      title.placeholder = "비워두면 사이트 주소로 저장";
+      for (const control of [url, title]) control.addEventListener("input", () => clearFieldError(control));
+    }
+    if (move) to = destinationFields(body, original.groupId);
+    else if (!link?.id) {
+      location = node("details", undefined, "destination-picker");
+      locationSummary = node("summary");
+      const fields = node("div");
+      location.append(locationSummary, fields); body.append(location);
+      to = destinationFields(fields, destination.groupId);
+    }
+    if (to) { to.group.classList.add("edit-target-group"); to.group.addEventListener("change", updateControls); updateLocation(); }
+    reviewBox = node("div", undefined, "edit-review"); reviewBox.hidden = true;
+    reviewNote = node("p", "", "form-note edit-review-note"); reviewNote.setAttribute("role", "status"); reviewNote.setAttribute("aria-atomic", "true");
+    reviewButton = button("입력 유지하고 최신 목록 검토", reviewLatest, "quiet-button edit-review-button");
+    comparison = node("dl", undefined, "edit-review-comparison");
+    const acknowledgement = node("label", undefined, "edit-review-acknowledgement"); acknowledgement.hidden = true;
+    acknowledge = node("input"); acknowledge.type = "checkbox"; acknowledge.classList.add("edit-review-ack");
+    acknowledge.addEventListener("change", updateControls);
+    acknowledgement.append(acknowledge, node("span", move ? "최신 링크를 확인했고, 선택한 그룹으로 이동합니다." : "최신 링크를 확인했고, 내 입력으로 수정합니다."));
+    reviewBox.append(reviewNote, reviewButton, comparison, acknowledgement);
+    reviewLibrary = selectField(reviewBox, "저장할 보관함"); reviewLibrary.classList.add("edit-target-library"); reviewLibrary.parentElement.hidden = true;
+    reviewLibrary.addEventListener("change", () => {
+      if (reviewing || needsReview || link?.id) return;
+      targetLibrary = reviewLibrary.value; refreshGroups(""); describeReview(); updateControls();
+    });
+    body.append(reviewBox);
     body.append(node("p", "이 브라우저에 저장합니다. 인증용·일회성 주소는 저장하지 마세요.", "form-note"));
-  }, () => {
-    for (const control of [url, title]) clearFieldError(control);
-    // Validate the address first so an optional title error never blames it.
-    validateField(url, { url: url.value });
-    const input = validateField(title, { title: title.value, url: url.value });
-    return dispatch(link?.id
-      ? { type: "updateLink", libraryId: targetLibrary, linkId: link.id, ...input }
-      : { type: "addLink", libraryId: targetLibrary, groupId: to.group.value, link: input }, revision, link?.id ? "링크를 수정했습니다." : "링크를 담았습니다. 잘못 담았다면 되돌리기를 누르세요.");
-  });
+  }, submit);
 }
 function moveDialog(link) {
-  const revision = state.revision;
-  let to;
-  const currentGroup = flattenGroups(library()).find(({ group }) => group.links.some(item => item.id === link.id))?.group;
-  showDialog("링크 이동", "이동", body => { body.append(node("p", link.title, "form-note")); to = destinationFields(body, currentGroup?.id); }, () => dispatch({ type: "moveLink", linkId: link.id, targetGroupId: to.group.value }, revision));
+  return linkDialog(link, {}, { move: true });
 }
 function visibleSelectionIds() {
   return [...document.querySelectorAll("#tree .link-row")].map(row => row.dataset.linkId);

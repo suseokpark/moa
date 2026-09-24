@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import vm from "node:vm";
 import { createCatalog, validateCatalog, flattenGroups } from "../src/link-library.js";
-import { prepareLinkInput } from "../src/link-entry.js";
 import { createCatalogService, FAVMOA_STORAGE_KEY, FAVMOA_RESTORE_POINT_KEY } from "../src/favmoa-service.js";
+import { fixture as sidepanelFixture } from "../test-support/candidate-picker-fixture.mjs";
 
 const source = readFileSync(new URL("../sidepanel/sidepanel.js", import.meta.url), "utf8");
 const html = readFileSync(new URL("../sidepanel/sidepanel.html", import.meta.url), "utf8");
@@ -50,7 +50,7 @@ function dialogFixture({ hasRestorePoint = false } = {}) {
   });
   const context = vm.createContext({
     state: { ok: true, revision: 8, catalog: current, canUndo: false, hasRestorePoint },
-    libraryId: "library-personal", validateCatalog, prepareLinkInput, flattenGroups,
+    libraryId: "library-personal", validateCatalog, flattenGroups,
     document: { createElement(tag) { const element = new Element(tag); elements.push(element); return element; } },
     render() {}, exportBackup() {}, announce: message => messages.push(message),
     $: () => ({ textContent: "" }),
@@ -71,7 +71,7 @@ function dialogFixture({ hasRestorePoint = false } = {}) {
       })
     }
   });
-  vm.runInContext(["node", "button", "field", "library", "linksOf", "allLinkCount", "adopt", "requireResult", "linkDialog", "backupPayload", "restoreDialog"].map(functionSource).join("\n"), context);
+  vm.runInContext(["node", "button", "field", "library", "linksOf", "allLinkCount", "adopt", "requireResult", "backupPayload", "restoreDialog"].map(functionSource).join("\n"), context);
   return { context, elements, actions, messages, stored };
 }
 
@@ -128,37 +128,44 @@ test("a changed backup updates the UI and exposes the created restore checkpoint
   assert.match(messages.at(-1), /복원 전 목록 복구/u);
 });
 
-test("manual entry accepts a bare domain, optional title and chosen destination through the shipped dialog", () => {
-  const { context, elements, actions } = dialogFixture();
-  context.linkDialog();
-  const [url, title] = elements.filter(element => element.tag === "input");
+test("manual entry accepts a bare domain, optional title and chosen destination through the shipped dialog", async () => {
+  const f = sidepanelFixture();
+  f.run("linkDialog()");
+  const [url, title] = f.$("dialog-body").querySelectorAll("input");
   assert.equal(url.type, "text");
   assert.equal(url.required, true);
   assert.equal(url.inputMode, "url");
   assert.equal(title.required, false);
-  assert.equal(elements.find(element => element.tag === "details").open, false);
+  assert.equal(f.$("dialog-body").querySelector("details").open, false);
   url.value = " example.com/docs "; title.value = "";
-  assert.equal(context.dialog.submit(), true);
-  assert.equal(actions.length, 1);
-  assert.deepEqual(actions[0].action, {
+  await f.submit();
+  assert.equal(f.$("dialog").open, false);
+  assert.equal(f.actions.length, 1);
+  assert.deepEqual(f.actions[0].action, {
     type: "addLink", libraryId: "library-personal",
-    groupId: context.state.catalog.libraries[0].groups[0].id,
+    groupId: f.run("state.catalog.libraries[0].groups[0].id"),
     link: { title: "example.com", url: "https://example.com/docs" }
   });
-  assert.equal(actions[0].revision, 8);
+  assert.equal(f.actions[0].expectedRevision, 7);
+  const saved = f.run("linksOf(library()).find(link => link.url === 'https://example.com/docs')");
+  assert.equal(saved.title, "example.com");
 });
 
-test("editing uses the same URL preparation while unsafe input never dispatches", () => {
-  const { context, elements, actions } = dialogFixture();
-  context.linkDialog({ id: "link-existing", title: "기존 이름", url: "https://example.org/old" });
-  const [url, title] = elements.filter(element => element.tag === "input");
+test("editing uses the same URL preparation while unsafe input never dispatches", async () => {
+  const f = sidepanelFixture();
+  f.run("linkDialog(linksOf(library()).find(link => link.id === 'saved'))");
+  const [url, title] = f.$("dialog-body").querySelectorAll("input");
   url.value = "javascript:alert(1)";
-  assert.throws(() => context.dialog.submit(), /웹 주소/u);
-  assert.equal(actions.length, 0);
+  await f.submit();
+  assert.match(f.$("dialog-error").textContent, /웹 주소/u);
+  assert.equal(f.$("dialog").open, true);
+  assert.equal(f.actions.length, 0);
   url.value = "example.com/new"; title.value = "";
-  context.dialog.submit();
-  assert.deepEqual(actions[0].action, { type: "updateLink", libraryId: "library-personal", linkId: "link-existing", title: "example.com", url: "https://example.com/new" });
-  assert.match(actions[0].message, /수정했습니다/u);
+  await f.submit();
+  assert.deepEqual(f.actions[0].action, { type: "updateLink", libraryId: "library-personal", linkId: "saved", title: "example.com", url: "https://example.com/new" });
+  assert.match(f.$("status").textContent, /수정했습니다/u);
+  assert.equal(f.$("dialog").open, false);
+  assert.equal(f.run("linksOf(library()).find(link => link.id === 'saved').url"), "https://example.com/new");
 });
 
 test("every literal sidepanel control reference resolves to one HTML element", () => {

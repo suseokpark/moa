@@ -1,68 +1,21 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
-import vm from "node:vm";
-import { prepareLinkInput } from "../src/link-entry.js";
+import { fixture as sidepanelFixture } from "../test-support/candidate-picker-fixture.mjs";
 
-// The shipped dialog functions and submit handler run against a small synthetic
-// DOM. This covers form state, not native modal layout or Chrome runtime APIs.
-const source = readFileSync(new URL("../sidepanel/sidepanel.js", import.meta.url), "utf8");
-const declarations = [...source.matchAll(/^(?:async )?function ([A-Za-z0-9_]+)\(/gmu)];
-function shipped(name) {
-  const index = declarations.findIndex(match => match[1] === name);
-  return index < 0 ? "" : source.slice(declarations[index].index, declarations[index + 1]?.index ?? source.length);
-}
-class Element {
-  constructor(tag, documentRef) {
-    this.tagName = tag.toUpperCase(); this.documentRef = documentRef;
-    this.children = []; this.attributes = {}; this.dataset = {}; this.listeners = new Map();
-    this.disabled = false; this.open = false; this.isConnected = true; this.value = ""; this.textContent = "";
-  }
-  append(...children) { this.children.push(...children); }
-  replaceChildren(...children) { this.children = children; this.textContent = ""; }
-  setAttribute(name, value) { this.attributes[name] = String(value); }
-  getAttribute(name) { return this.attributes[name] ?? null; }
-  removeAttribute(name) { delete this.attributes[name]; }
-  addEventListener(name, handler) { this.listeners.set(name, handler); }
-  emit(name) { return this.listeners.get(name)?.({ target: this, currentTarget: this, preventDefault() {} }); }
-  focus() { if (!this.disabled) this.documentRef.activeElement = this; }
-  closest() { return null; }
-  showModal() { this.open = true; }
-  close() { this.open = false; }
-  querySelectorAll(selector) {
-    const tags = selector.split(",").map(tag => tag.trim().toUpperCase());
-    return this.children.flatMap(child => [child, ...child.querySelectorAll("*")]).filter(child => selector === "*" || tags.includes(child.tagName));
-  }
-  querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
-}
+// Run the complete shipped sidepanel through the shared synthetic DOM seam.
+// This covers form state, not native modal layout or Chrome runtime APIs.
 function fixture() {
-  const elements = new Map(), actions = [];
-  const document = { activeElement: null, createElement: tag => new Element(tag, document), querySelectorAll: () => [] };
-  for (const [id, tag] of Object.entries({
-    dialog: "dialog", "dialog-form": "form", "dialog-title": "h2", "dialog-body": "div", "dialog-error": "p",
-    "dialog-submit": "button", "dialog-close": "button", "dialog-cancel": "button", "add-group": "button"
-  })) elements.set(id, document.createElement(tag));
-  const $ = id => elements.get(id);
-  $("dialog").append($("dialog-form"));
-  $("dialog-form").append($("dialog-close"), $("dialog-body"), $("dialog-error"), $("dialog-cancel"), $("dialog-submit"));
-  $("add-group").focus();
-  let dispatch = action => { actions.push(action); return true; };
-  const context = vm.createContext({
-    $, document, prepareLinkInput, state: { revision: 7 }, libraryId: "library-test",
-    dialogBusy: false, dialogSubmit: null, dialogOrigin: null, dialogReturnKeys: [], dialogDisabledStates: new Map(), dialogBusyFocus: null,
-    dispatch: (...args) => dispatch(...args),
-    destinationFields(parent) {
-      const group = document.createElement("select"); group.value = "group-test";
-      group.selectedOptions = [{ textContent: "테스트 그룹" }]; parent.append(group); return { group };
-    }
-  });
-  vm.runInContext(["node", "field", "setDialogBusy", "closeDialog", "restoreDialogFocus", "showDialog", "linkDialog"].map(shipped).join("\n"), context);
-  const start = source.indexOf('$("dialog-form").addEventListener("submit"');
-  vm.runInContext(source.slice(start, source.indexOf('treeDrag.bindTarget($("root-drop")', start)), context);
-  context.linkDialog();
-  const [url, title] = $("dialog-body").querySelectorAll("input");
+  const f = sidepanelFixture();
+  f.$("add-group").focus();
+  f.run("linkDialog()");
+  const [url, title] = f.$("dialog-body").querySelectorAll("input");
   url.value = "https://example.com/document"; title.value = "예시 문서";
-  return { context, document, $, url, title, actions, setDispatch: callback => { dispatch = callback; }, submit: () => $("dialog-form").emit("submit") };
+  return { ...f, url, title, setDispatch(callback) {
+    f.setResponse(async (...args) => {
+      const result = await callback(...args);
+      return result === true ? { ok: true, catalog: f.run("state.catalog"), revision: f.run("state.revision") + 1 } : result;
+    });
+  } };
 }
 
 test("invalid URL remains editable, associates its error and returns focus to the address", async () => {
@@ -80,7 +33,7 @@ test("invalid URL remains editable, associates its error and returns focus to th
   assert.equal(f.$("dialog-error").textContent, "");
   await f.submit();
   assert.equal(f.actions.length, 1);
-  assert.equal(f.actions[0].link.url, "https://example.com/fixed");
+  assert.equal(f.actions[0].action.link.url, "https://example.com/fixed");
   assert.equal(f.$("dialog").open, false);
 });
 
