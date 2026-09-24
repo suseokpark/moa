@@ -837,7 +837,7 @@ $("clear-search").addEventListener("click", clearSearch);
 $("backup-shortcut").addEventListener("click", openBackupSettings);
 $("library-picker").addEventListener("change", event => { libraryId = event.target.value; suppressedFolds.clear(); render(); });
 $("search").addEventListener("input", render);
-$("undo").addEventListener("click", async () => { try { adopt(await requireResult(platform.undo(state.revision))); announce("직전 변경을 되돌렸습니다."); } catch (error) { announce(error.message, true); } });
+$("undo").addEventListener("click", async () => { try { adopt(await requireResult(platform.undo(state.revision))); announce("마지막 내용 편집을 되돌렸습니다. 직접 접고 펼친 상태는 유지됩니다."); } catch (error) { announce(error.message, true); } });
 $("import-legacy").addEventListener("click", () => {
   const revision = state.revision;
   confirmDialog("기존 Moa 목록을 가져올까요?", "이 확장에 남아 있는 기존 Notion 워크스페이스별 목록을 새 보관함으로 복사합니다. Notion 내부 메뉴는 종료되었지만 원본 저장 데이터는 삭제하지 않습니다. 자동 이전이나 동기화는 하지 않습니다.", "가져오기", async () => {

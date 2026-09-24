@@ -1,4 +1,4 @@
-import { applyCatalogAction, createCatalog, migrateLegacyStorage, validateCatalog } from "./link-library.js";
+import { applyCatalogAction, createCatalog, flattenGroups, migrateLegacyStorage, validateCatalog } from "./link-library.js";
 
 export const FAVMOA_STORAGE_KEY = "favmoa:catalog:v1";
 export const FAVMOA_UNDO_KEY = "favmoa:undo:v1";
@@ -29,6 +29,25 @@ function decodeRestorePoint(value) {
   if (!value) return null;
   try { return validateCatalog(value.catalog); }
   catch { return null; }
+}
+
+function preserveExplicitFold(undoCatalog, catalog, action) {
+  if (!undoCatalog) return null;
+  const findGroup = source => {
+    const library = source.libraries.find(item => item.id === action.libraryId);
+    return library && flattenGroups(library).find(({ group }) => group.id === action.groupId)?.group;
+  };
+  const previousGroup = findGroup(undoCatalog);
+  const currentGroup = findGroup(catalog);
+  // Only the user's explicit view change survives undo. Batch additions/moves
+  // still undo their automatic reveal. A newly added group may not exist here.
+  if (previousGroup && currentGroup) {
+    previousGroup.collapsed = currentGroup.collapsed;
+    // true -> false adds one serialized byte. Even a view-only change must not
+    // write an oversized snapshot that the next GET would silently reject.
+    return validateCatalog(undoCatalog);
+  }
+  return undoCatalog;
 }
 
 function hasVersionOneSource(values) {
@@ -107,9 +126,17 @@ export function createCatalogService({ storage, runtimeId }) {
     }
     if (JSON.stringify(catalog) === JSON.stringify(current.catalog) && !["FAVMOA_UNDO", "FAVMOA_RESTORE_PREVIOUS_BACKUP"].includes(message.type)) return { ok: true, ...current, canUndo, hasRestorePoint, ...extra };
     const next = { revision: current.revision + 1, catalog };
+    const viewOnly = message.type === "FAVMOA_ACTION" && message.action?.type === "toggleGroup";
+    let nextUndoCatalog = null;
+    try {
+      if (message.type !== "FAVMOA_UNDO") nextUndoCatalog = viewOnly
+        ? preserveExplicitFold(undoCatalog, catalog, message.action) : current.catalog;
+    } catch {
+      return failure("UNDO_PROTECTION_FAILED", "되돌리기 기록을 안전하게 유지할 수 없어 접기·펼치기를 저장하지 않았습니다. 기존 목록과 복구 기록은 그대로입니다.");
+    }
     const writes = {
       [FAVMOA_STORAGE_KEY]: next,
-      [FAVMOA_UNDO_KEY]: message.type === "FAVMOA_UNDO" ? null : { catalog: current.catalog, revertsRevision: next.revision }
+      [FAVMOA_UNDO_KEY]: nextUndoCatalog ? { catalog: nextUndoCatalog, revertsRevision: next.revision } : null
     };
     // Loading v1 returns a pure v2 view without rewriting storage. Only the first
     // changed save archives the exact old envelope, undo and restore point, in
@@ -135,7 +162,7 @@ export function createCatalogService({ storage, runtimeId }) {
     }
     try { await storage.set(writes); }
     catch { return failure("SAVE_FAILED", "저장하지 못했습니다. 저장 공간을 확인하고 다시 시도해 주세요."); }
-    return { ok: true, ...next, canUndo: message.type !== "FAVMOA_UNDO",
+    return { ok: true, ...next, canUndo: Boolean(nextUndoCatalog),
       hasRestorePoint: message.type === "FAVMOA_IMPORT_BACKUP" || (message.type !== "FAVMOA_RESTORE_PREVIOUS_BACKUP" && hasRestorePoint), ...extra };
   }
 

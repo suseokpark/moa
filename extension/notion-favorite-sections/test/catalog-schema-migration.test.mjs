@@ -211,3 +211,78 @@ test("unreadable old undo is never offered, but its raw contents are included in
   assert.equal((await f.rename("safe edit")).ok, true);
   assert.deepEqual(f.data[MIGRATION_KEY].storage[FAVMOA_UNDO_KEY], initial[FAVMOA_UNDO_KEY]);
 });
+
+test("a first v1 fold archives exact raw sources while retaining the old content undo", async () => {
+  const initial = originals();
+  const f = fixture(initial);
+  const folded = await f.send({ type: "FAVMOA_ACTION", expectedRevision: 7,
+    action: { type: "toggleGroup", libraryId: "library-personal", groupId: "work" } });
+  assert.equal(folded.ok, true);
+  assert.equal(folded.revision, 8);
+  assert.equal(folded.canUndo, true);
+  assert.equal(folded.hasRestorePoint, true);
+  assert.equal(f.writes.length, 1);
+  const expectedUndo = validateCatalog(initial[FAVMOA_UNDO_KEY].catalog);
+  expectedUndo.libraries[0].groups[0].collapsed = false;
+  assert.deepEqual(f.data[FAVMOA_UNDO_KEY], { catalog: expectedUndo, revertsRevision: 8 });
+  assert.deepEqual(f.data[FAVMOA_RESTORE_POINT_KEY], initial[FAVMOA_RESTORE_POINT_KEY]);
+  const expectedArchive = { fromSchemaVersion: 1, toSchemaVersion: 2, storage: {
+    [FAVMOA_STORAGE_KEY]: initial[FAVMOA_STORAGE_KEY],
+    [FAVMOA_UNDO_KEY]: initial[FAVMOA_UNDO_KEY],
+    [FAVMOA_RESTORE_POINT_KEY]: initial[FAVMOA_RESTORE_POINT_KEY]
+  } };
+  assert.deepEqual(f.writes[0][MIGRATION_KEY], expectedArchive);
+  assert.deepEqual(Object.keys(f.writes[0]).sort(), [FAVMOA_STORAGE_KEY, FAVMOA_UNDO_KEY, MIGRATION_KEY].sort());
+  assert.equal(f.data["unrelated-private-setting"], initial["unrelated-private-setting"]);
+  const undone = await f.send({ type: "FAVMOA_UNDO", expectedRevision: 8 });
+  assert.equal(undone.ok, true);
+  assert.deepEqual(undone.catalog, expectedUndo);
+  assert.equal(undone.canUndo, false);
+  assert.deepEqual(f.data[MIGRATION_KEY], expectedArchive);
+  assert.equal(Object.hasOwn(f.writes[1], MIGRATION_KEY), false);
+});
+
+test("a failed first v1 fold leaves raw data and protected undo intact until atomic retry", async () => {
+  const initial = originals();
+  const f = fixture(initial);
+  const request = { type: "FAVMOA_ACTION", expectedRevision: 7,
+    action: { type: "toggleGroup", libraryId: "library-personal", groupId: "research" } };
+  f.rejectSet = true;
+  assert.equal((await f.send(request)).code, "SAVE_FAILED");
+  assert.deepEqual(f.data, initial);
+  assert.equal((await f.send({ type: "FAVMOA_GET" })).canUndo, true);
+  const attempted = clone(f.writes[0]);
+  assert.deepEqual(attempted[MIGRATION_KEY].storage[FAVMOA_UNDO_KEY], initial[FAVMOA_UNDO_KEY]);
+  f.rejectSet = false;
+  const retry = await f.send(request);
+  assert.equal(retry.ok, true);
+  assert.equal(retry.canUndo, true);
+  assert.deepEqual(f.writes[1], attempted);
+  const expectedUndo = validateCatalog(initial[FAVMOA_UNDO_KEY].catalog);
+  expectedUndo.libraries[0].groups[0].groups[0].collapsed = false;
+  assert.deepEqual((await f.send({ type: "FAVMOA_UNDO", expectedRevision: 8 })).catalog, expectedUndo);
+  assert.deepEqual(f.data[FAVMOA_RESTORE_POINT_KEY], initial[FAVMOA_RESTORE_POINT_KEY]);
+});
+
+test("a v1 fold does not revive unreadable undo but archives its raw value before clearing it", async () => {
+  const initial = originals();
+  initial[FAVMOA_UNDO_KEY] = { revertsRevision: 7, catalog: { schemaVersion: 1, malformed: true } };
+  const f = fixture(initial);
+  const folded = await f.send({ type: "FAVMOA_ACTION", expectedRevision: 7,
+    action: { type: "toggleGroup", libraryId: "library-personal", groupId: "work" } });
+  assert.equal(folded.ok, true);
+  assert.equal(folded.canUndo, false);
+  assert.equal(f.data[FAVMOA_UNDO_KEY], null);
+  assert.deepEqual(f.data[MIGRATION_KEY].storage[FAVMOA_UNDO_KEY], initial[FAVMOA_UNDO_KEY]);
+  assert.equal((await f.send({ type: "FAVMOA_UNDO", expectedRevision: 8 })).code, "NOTHING_TO_UNDO");
+});
+
+test("fold-only saves cannot bypass an unreadable pre-existing v1 migration archive", async () => {
+  const initial = { ...originals(), [MIGRATION_KEY]: { malformed: true } };
+  const f = fixture(initial);
+  const result = await f.send({ type: "FAVMOA_ACTION", expectedRevision: 7,
+    action: { type: "toggleGroup", libraryId: "library-personal", groupId: "work" } });
+  assert.equal(result.code, "MIGRATION_BACKUP_INVALID");
+  assert.deepEqual(f.data, initial);
+  assert.deepEqual(f.writes, []);
+});

@@ -249,9 +249,11 @@ export async function runOrganize(persona) {
       const removedBeforeFold = await foldCase.action({ type: "removeLink", linkId: data.target.id }); assertSuccess("접힘 경계 확인용 링크 제거", removedBeforeFold);
       const folded = await foldCase.action({ type: "toggleGroup", groupId: data.rootId }); assertSuccess("그룹 펼침 상태 변경", folded);
       const undoFold = await foldCase.undo(); assertSuccess("접힘 직후 되돌리기", undoFold);
-      r.check("접힘 되돌리기는 직전 펼침 상태만 복구", undoFold.catalog, removedBeforeFold.catalog);
+      const expectedAfterUndo = clone(original);
+      groupIn(expectedAfterUndo, data.rootId).collapsed = groupIn(folded.catalog, data.rootId).collapsed;
+      r.check("접힘 후 되돌리기는 삭제한 링크를 복구하고 선택한 보기 상태 유지", undoFold.catalog, expectedAfterUndo);
+      r.check("직전 내용 편집 취소 후 복구 기록 소진", undoFold.canUndo, false);
       r.note(`제거→그룹 접기→되돌리기 이후 대상 링크 존재=${allLinks(undoFold.catalog).some(link => link.id === data.target.id)}, canUndo=${undoFold.canUndo}.`);
-      if (!undoFold.canUndo && !allLinks(undoFold.catalog).some(link => link.id === data.target.id)) r.issue("fold-consumes-undo", "그룹 접기가 링크 제거의 되돌리기 기록을 덮음", "링크 제거→그룹 접기→되돌리기는 접힘 상태만 취소합니다. 제거한 링크는 남아 있지 않고 canUndo=false이므로 추가 취소가 불가능합니다.", "펼침·접힘 같은 보기 상태는 내용 편집의 되돌리기 기록과 분리합니다.");
       break;
     }
     default: throw scenarioError(r, `Unknown organize scenario ${scenario}`);
