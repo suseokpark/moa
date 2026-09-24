@@ -688,22 +688,32 @@ function restoreDialog(catalog, source) {
 function chooseOpenTabs() { return chooseCandidateLinks(); }
 function chooseBookmarks() { return chooseCandidateLinks({ bookmarks: true }); }
 function chooseCandidateLinks({ bookmarks = false } = {}) {
-  const revision = state.revision;
-  const targetLibrary = libraryId;
-  const savedLinks = linksOf(library());
+  let revision = state.revision;
+  let targetLibrary = libraryId;
+  let destinationCatalog = state.catalog;
+  let savedLinks = linksOf(library());
   const selection = new Set();
   let candidates = [], shown = [], loaded = false, limit = 200;
+  let sourceResult, needsReview = false, reviewing = false;
   const itemName = bookmarks ? "북마크" : "탭";
-  let filter, list, count, summary, selectVisible, clearSelection, more, retry, to;
+  let filter, list, count, summary, selectVisible, clearSelection, more, retry, to, reviewBox, reviewNote, reviewButton, reviewLibrary;
+  const destination = () => destinationCatalog.libraries.find(item => item.id === targetLibrary);
+  const validDestination = () => !!destination() && flattenGroups(destination()).some(({ group }) => group.id === to.group.value);
   const updateSelection = () => {
     const visibleCount = shown.filter(item => selection.has(item.key)).length;
     const hidden = selection.size - visibleCount;
     count.textContent = `${selection.size}개 선택${hidden ? ` · 화면 밖 ${hidden}개 포함` : ""}`;
     selectVisible.checked = shown.length > 0 && visibleCount === shown.length;
     selectVisible.indeterminate = visibleCount > 0 && visibleCount < shown.length;
-    selectVisible.disabled = !loaded || !shown.length;
-    clearSelection.disabled = !selection.size;
-    $("dialog-submit").disabled = !loaded || !selection.size;
+    selectVisible.disabled = reviewing || !loaded || !shown.length;
+    clearSelection.disabled = reviewing || !selection.size;
+    filter.disabled = reviewing || !loaded;
+    more.disabled = reviewing;
+    to.group.disabled = reviewing || !loaded || !candidates.length || !destination();
+    reviewButton.disabled = reviewing;
+    reviewLibrary.disabled = reviewing;
+    for (const check of list.querySelectorAll("input")) check.disabled = reviewing;
+    $("dialog-submit").disabled = needsReview || reviewing || !loaded || !selection.size || !validDestination();
     $("dialog-submit").textContent = selection.size ? `선택한 ${selection.size}개 담기` : "선택한 링크 담기";
   };
   const renderCandidates = () => {
@@ -733,11 +743,47 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
     more.textContent = `더 보기 (${shown.length}/${matched.length})`;
     updateSelection();
   };
+  const prepareCandidates = () => {
+    const prepared = bookmarks ? prepareBookmarkCandidates(sourceResult.candidates, savedLinks) : prepareOpenTabCandidates(sourceResult.tabs, savedLinks);
+    candidates = prepared.candidates;
+    const available = new Set(candidates.map(item => item.key));
+    const previousCount = selection.size;
+    for (const key of selection) if (!available.has(key)) selection.delete(key);
+    summary.textContent = bookmarks
+      ? `${sourceResult.demo ? "예시 북마크 · " : "Chrome 북마크 · "}새 링크 ${candidates.length}개 · 이미 저장 ${prepared.savedCount}개 · 중복 ${prepared.duplicateCount}개 제외. 지원하지 않는 주소는 표시하지 않습니다.`
+      : `${sourceResult.demo ? "예시 탭 · " : "모든 Chrome 창 · "}새 링크 ${candidates.length}개 · 이미 저장 ${prepared.savedCount}개 · 중복 탭 ${prepared.duplicateCount}개 · 지원하지 않거나 비공개인 탭 ${(sourceResult.excludedCount || 0) + prepared.unsupportedCount}개 제외`;
+    return previousCount - selection.size;
+  };
+  const refreshDestination = groupId => {
+    const target = destination();
+    const groups = target ? flattenGroups(target) : [];
+    const retained = groups.some(({ group }) => group.id === groupId);
+    to.group.replaceChildren();
+    if (!retained) option(to.group, target ? "저장할 그룹을 선택해 주세요" : "먼저 보관함을 선택해 주세요", "", true);
+    for (const value of groups) option(to.group, value.path.map(item => item.name).join(" › "), value.group.id, retained && value.group.id === groupId);
+    if (target) {
+      savedLinks = linksOf(target);
+      const excluded = prepareCandidates();
+      reviewNote.textContent = `최신 목록 확인 완료 · 이미 저장된 선택 ${excluded}개 제외 · ${selection.size}개 유지. ${retained ? "저장할 그룹을 검토한 뒤 아래 담기 버튼을 눌러 주세요." : "기존 목적지를 사용할 수 없습니다. 저장할 그룹을 직접 선택해 주세요."}`;
+    } else {
+      reviewNote.textContent = "기존 보관함이 없어졌습니다. 선택은 유지했습니다. 저장할 보관함과 그룹을 직접 선택해 주세요.";
+    }
+    renderCandidates();
+  };
   const submit = async () => {
-    if (!loaded || !selection.size) return false;
+    if (needsReview || reviewing || !loaded || !selection.size || !validDestination()) return false;
     const links = candidates.filter(item => selection.has(item.key)).map(({ title, url }) => ({ title, url }));
     const targetGroupId = to.group.value;
-    await dispatch({ type: "addLinks", libraryId: targetLibrary, groupId: targetGroupId, links, revealTarget: true }, revision, `${links.length}개 링크를 담았습니다. 한 번의 되돌리기로 취소할 수 있어요.`);
+    try {
+      await dispatch({ type: "addLinks", libraryId: targetLibrary, groupId: targetGroupId, links, revealTarget: true }, revision, `${links.length}개 링크를 담았습니다. 한 번의 되돌리기로 취소할 수 있어요.`);
+    } catch (error) {
+      if (error.code === "CONFLICT") {
+        needsReview = true; reviewBox.hidden = false;
+        reviewNote.textContent = "다른 화면에서 목록이 바뀌었습니다. 선택을 유지한 채 최신 목록과 저장할 그룹을 먼저 검토해 주세요. 검토만으로는 저장하지 않습니다.";
+      }
+      throw error;
+    }
+    libraryId = targetLibrary;
     linkSelection.stop(); $("search").value = "";
     render();
     runAfterTreeRender(() => {
@@ -750,6 +796,46 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
     });
     return true;
   };
+  // The shared form restores pre-save disabled flags. Reapply the conflict gate
+  // afterwards so neither another click nor a direct submit can retry stale data.
+  submit.afterSubmit = () => { updateSelection(); if (needsReview && !reviewing) reviewButton.focus(); };
+  const reviewLatest = async () => {
+    if (reviewing || dialogBusy || !$("dialog").open || dialogSubmit !== submit) return;
+    reviewing = true; needsReview = true;
+    reviewBox.setAttribute("aria-busy", "true");
+    reviewNote.textContent = "선택은 유지하고 저장된 최신 목록을 확인하고 있어요…";
+    $("dialog-error").textContent = ""; updateSelection();
+    const groupId = to.group.value;
+    try {
+      const result = await platform.load();
+      // One read at a time; handler identity also rejects a cancelled/replaced
+      // dialog's late response. No browser source/permission is requested here.
+      if (!$("dialog").open || dialogSubmit !== submit) return;
+      if (!result?.ok || !Number.isSafeInteger(result.revision) || result.revision < Math.max(revision, state.revision)) throw new Error("Invalid review snapshot");
+      const catalog = validateCatalog(result.catalog);
+      destinationCatalog = catalog; revision = result.revision;
+      adopt({ ...result, catalog });
+      if (!destination()) {
+        targetLibrary = "";
+        reviewLibrary.parentElement.hidden = false;
+      }
+      reviewLibrary.replaceChildren();
+      option(reviewLibrary, "저장할 보관함을 선택해 주세요", "", !targetLibrary);
+      for (const value of catalog.libraries) option(reviewLibrary, value.name, value.id, value.id === targetLibrary);
+      refreshDestination(groupId);
+      needsReview = false;
+    } catch {
+      if (!$("dialog").open || dialogSubmit !== submit) return;
+      reviewNote.textContent = "최신 목록을 확인하지 못했습니다. 선택은 유지했습니다. 다시 검토해 주세요.";
+    } finally {
+      if ($("dialog").open && dialogSubmit === submit) {
+        reviewing = false; reviewBox.setAttribute("aria-busy", "false"); updateSelection();
+        if (needsReview) reviewButton.focus();
+        else if (!destination()) reviewLibrary.focus();
+        else to.group.focus();
+      }
+    }
+  };
   const loadCandidates = async () => {
     retry.hidden = true; summary.textContent = bookmarks ? "북마크를 확인하고 있어요. 권한 요청이 나타나면 허용 여부를 선택해 주세요." : "열린 탭을 확인하고 있어요…";
     let result;
@@ -760,11 +846,7 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
     if (!result?.ok) {
       summary.textContent = result?.error || "목록을 읽지 못했습니다. 다시 시도해 주세요."; retry.hidden = false; return;
     }
-    const prepared = bookmarks ? prepareBookmarkCandidates(result.candidates, savedLinks) : prepareOpenTabCandidates(result.tabs, savedLinks);
-    candidates = prepared.candidates; loaded = true; filter.disabled = false; to.group.disabled = !candidates.length;
-    summary.textContent = bookmarks
-      ? `${result.demo ? "예시 북마크 · " : "Chrome 북마크 · "}새 링크 ${candidates.length}개 · 이미 저장 ${prepared.savedCount}개 · 중복 ${prepared.duplicateCount}개 제외. 지원하지 않는 주소는 표시하지 않습니다.`
-      : `${result.demo ? "예시 탭 · " : "모든 Chrome 창 · "}새 링크 ${candidates.length}개 · 이미 저장 ${prepared.savedCount}개 · 중복 탭 ${prepared.duplicateCount}개 · 지원하지 않거나 비공개인 탭 ${(result.excludedCount || 0) + prepared.unsupportedCount}개 제외`;
+    sourceResult = result; prepareCandidates(); loaded = true;
     renderCandidates();
     if (candidates.length && document.activeElement === $("dialog-close")) filter.focus();
   };
@@ -773,6 +855,15 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
       ? "선택한 북마크를 현재 보관함에 복사합니다. 원본은 그대로 유지됩니다. 인증용·일회성 주소는 제외하세요."
       : "현재 보관함에 선택한 페이지의 이름·주소만 복사합니다. 탭은 닫지 않습니다. 인증용·일회성 주소는 선택하지 마세요.", "form-note"));
     summary = node("p", "", "form-note"); summary.setAttribute("role", "status"); body.append(summary);
+    reviewBox = node("div", undefined, "candidate-review"); reviewBox.hidden = true;
+    reviewNote = node("p", "", "form-note"); reviewNote.setAttribute("role", "status"); reviewNote.setAttribute("aria-atomic", "true");
+    reviewButton = button("선택 유지하고 최신 목록 검토", reviewLatest, "quiet-button candidate-review-button");
+    reviewBox.append(reviewNote, reviewButton);
+    reviewLibrary = selectField(reviewBox, "저장할 보관함"); reviewLibrary.classList.add("candidate-review-library"); reviewLibrary.parentElement.hidden = true;
+    reviewLibrary.addEventListener("change", () => {
+      if (reviewing || needsReview) return;
+      targetLibrary = reviewLibrary.value; refreshDestination("");
+    });
     filter = field(body, `${itemName} 검색`, "", { type: "search", required: false }); filter.disabled = true;
     if (bookmarks) filter.placeholder = "이름, 주소 또는 원본 폴더";
     filter.addEventListener("input", () => { limit = 200; renderCandidates(); });
@@ -796,7 +887,9 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
     // Keep optional bookmark permission requests directly on the retry gesture.
     retry = node("button", "다시 불러오기"); retry.type = "button";
     retry.addEventListener("click", loadCandidates); retry.hidden = true; body.append(retry);
-    to = destinationFields(body); to.group.disabled = true;
+    to = destinationFields(body); to.group.disabled = true; to.group.classList.add("candidate-target-group");
+    to.group.addEventListener("change", updateSelection);
+    body.append(reviewBox);
     body.append(node("p", bookmarks
       ? "최대 1,000개 · 숨겨진 선택도 함께 담습니다. 원본 북마크가 바뀌었다면 이 창을 닫았다 다시 열어 주세요."
       : "검색으로 숨겨진 선택도 함께 담습니다. 한 번에 최대 1,000개. 목록은 이 창을 연 시점 기준이며, 새 탭을 포함하려면 닫았다 다시 열어 주세요.", "form-note"));
@@ -817,7 +910,10 @@ $("dialog-form").addEventListener("submit", async event => {
     $("dialog-error").textContent = error.message;
     error.focusTarget?.focus();
   }
-  finally { setDialogBusy(false); }
+  finally {
+    setDialogBusy(false);
+    if (dialogSubmit === activeHandler) activeHandler.afterSubmit?.();
+  }
 });
 treeDrag.bindTarget($("root-drop"), { groupId: null });
 document.addEventListener("dragstart", () => { for (const menu of document.querySelectorAll(".row-menu[open]")) menu.open = false; }, true);

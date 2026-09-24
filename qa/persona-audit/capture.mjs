@@ -4,7 +4,7 @@ import { fixture, deferred, flush } from '../../extension/notion-favorite-sectio
 export const CAPTURE_SCENARIOS = [
   '선택한 링크만 원자적으로 담기', '검색 뒤 숨겨진 선택 보존', '전체 선택 해제 후 검색 유지',
   '200개 이후 후보까지 탐색', '기저장·중복·지원 불가 주소 제외', '긴 제목 정리 후 저장',
-  '조회 취소 후 늦은 응답 격리', '읽기 실패와 명시적 재시도', '저장 중 중복 제출 방지', '다른 창 변경 충돌 시 선택 보존'
+  '조회 취소 후 늦은 응답 격리', '읽기 실패와 명시적 재시도', '저장 중 중복 제출 방지', '충돌 뒤 선택을 유지하고 명시적으로 최신 목록 검토'
 ];
 
 export async function runCapture(p) {
@@ -90,16 +90,25 @@ export async function runCapture(p) {
     } else if(variant===9){
       await f.check(rows[0].title); await f.target('destination');
       const fresh=structuredClone(f.context.initial.catalog); fresh.libraries[0].name='다른 창에서 변경';
+      f.setCatalog(fresh,8);
       f.setResponse(async()=>({ok:false,conflict:true,code:'CONFLICT',error:'다른 창에서 목록이 변경되었습니다.',revision:8,catalog:fresh}));
       await f.submit(); check('충돌 시 부분 저장 없음',f.run('linksOf(library()).length'),1);
       check('선택 유지',f.count(),'1개 선택'); check('충돌 명시',f.$('dialog-error').textContent.includes('다른 창'),true);
       check('이전 변경 버전 기준 저장 요청',f.actions[0].expectedRevision,7);
-      await f.submit(); check('같은 창 재제출은 여전히 이전 버전 사용',f.actions[1].expectedRevision,7);
-      check('재제출 후에도 충돌 안내 유지',f.$('dialog-error').textContent.includes('다른 창'),true);
-      friction.push({id:'conflict-reopen',title:'충돌 후 선택을 유지하지만 다시 열어야 함',evidence:'목록 변경 충돌 후 원래 revision 요청을 유지하므로 같은 창 재제출로는 복구되지 않음',recommendation:'선택을 유지한 최신 목록 재검토 또는 다시 열기 안내를 명확히 제공'});
+      await f.submit(); check('검토 전 재제출은 쓰기 요청을 만들지 않음',f.actions.length,1);
+      check('검토 전 저장 비활성',f.$('dialog-submit').disabled,true);
+      await f.clickText('선택 유지하고 최신 목록 검토');
+      check('검토는 최신 저장 목록을 한 번 읽음',f.loads(),1);
+      check('검토는 원본 탭·북마크를 재조회하지 않음',f.fetches(),1);
+      check('검토는 자동 저장하지 않음',f.actions.length,1);
+      check('검토 후 선택 보존',f.count(),'1개 선택');
+      check('검토 후 목적지 ID 유지',f.$('dialog-body').querySelector('.candidate-target-group').value,'destination');
+      f.setResponse(null); await f.submit();
+      check('별도 저장은 검토한 최신 버전 사용',f.actions[1].expectedRevision,8);
+      check('다른 창에서 바꾼 보관함 이름 유지',f.run('library().name'),'다른 창에서 변경');
     }
   }
-  if([0,1,3,4,5,7].includes(variant)) {
+  if([0,1,3,4,5,7,9].includes(variant)) {
     const action=f.actions.at(-1)?.action;
     const committed=JSON.parse(f.run('JSON.stringify(flattenGroups(library()).map(({group})=>group))'));
     const destination=committed.find(g=>g.id===action.groupId);

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
-import { applyCatalogAction, createCatalog, flattenGroups, identifyUrl, MAX_GROUP_DEPTH, SYSTEM_GROUP_ID } from "../src/link-library.js";
+import { applyCatalogAction, createCatalog, flattenGroups, identifyUrl, validateCatalog, MAX_GROUP_DEPTH, SYSTEM_GROUP_ID } from "../src/link-library.js";
 import { createLinkSelection } from "../src/link-selection.js";
 import { findSavedPage } from "../src/link-navigation.js";
 import * as candidatePreparation from "../src/open-tab-candidates.js";
@@ -111,6 +111,7 @@ export function fixture(tabs = defaults, { bookmarks = false } = {}) {
   for (const id of ["dialog-close", "dialog-cancel", "dialog-submit", "save-tabs", "select-mode", "move-selected"]) $(id).tagName = "BUTTON";
   $("select-visible").tagName = "INPUT"; $("select-visible").type = "checkbox";
   let catalog = createCatalog(), revision = 7, response = null, fetches = 0, interactionActive = false;
+  let loadResponse = null, loads = 0;
   let candidateResponse = async () => ({ ok: true, ...(bookmarks ? { candidates: tabs } : { tabs }), excludedCount: 0 });
   catalog.libraries[0].groups[0].links.push({ id: "saved", title: "Saved", url: "https://example.com/saved", icon: "", provider: "generic" });
   catalog.libraries[0].groups.push({ id: "parent", name: "Parent", links: [], collapsed: true, groups: [
@@ -119,11 +120,15 @@ export function fixture(tabs = defaults, { bookmarks = false } = {}) {
   catalog.libraries.push({ id: "other-library", name: "Other library", groups: [{ id: SYSTEM_GROUP_ID, name: "Other group", links: [], groups: [], collapsed: false }] });
   const context = vm.createContext({
     document, window: { addEventListener() {} }, identifyUrl, findSavedPage, createLinkSelection, ...candidatePreparation,
-    flattenGroups, MAX_GROUP_DEPTH, SYSTEM_GROUP_ID,
+    flattenGroups, validateCatalog, MAX_GROUP_DEPTH, SYSTEM_GROUP_ID,
     createInteractionGuard: () => ({ isActive: () => interactionActive }),
     createTreeDrag: () => ({ bindSource() {}, bindTarget() {}, reset() {}, isDragging: () => false }),
     createPlatform: () => ({
       mode: "demo", getCurrentPage: async () => null, getOpenTabs: async () => [],
+      load: async () => {
+        loads += 1;
+        return loadResponse ? loadResponse() : { ok: true, catalog: structuredClone(catalog), revision, canUndo: false };
+      },
       getOpenTabCandidates: async () => { fetches += 1; return candidateResponse(); },
       getBookmarkCandidates: async () => { fetches += 1; return candidateResponse(); },
       openLink: async (...args) => { opened.push(args); return { ok: true }; },
@@ -144,8 +149,11 @@ export function fixture(tabs = defaults, { bookmarks = false } = {}) {
     $, context, document, actions, opened,
     run: code => vm.runInContext(code, context),
     setCandidates(value) { candidateResponse = value; }, setResponse(value) { response = value; },
+    setLoadResponse(value) { loadResponse = value; },
+    setCatalog(value, nextRevision) { catalog = structuredClone(value); revision = nextRevision; },
     setInteraction(value) { interactionActive = value; },
     fetches: () => fetches,
+    loads: () => loads,
     open: async () => { void $(bookmarks ? "import-bookmarks" : "save-tabs").emit("click"); await flush(); },
     checks: () => $("dialog-body").querySelectorAll(".tab-candidates input"),
     filter: () => $("dialog-body").querySelector('input'),
@@ -157,7 +165,7 @@ export function fixture(tabs = defaults, { bookmarks = false } = {}) {
     },
     async search(value) { this.filter().value = value; await this.filter().emit("input"); },
     async clickText(text) { const control = $("dialog-body").querySelectorAll("button").find(item => item.textContent.startsWith(text)); assert.ok(control, text); await control.emit("click"); await flush(); },
-    async target(value) { const target = $("dialog-body").querySelector("select"); target.value = value; await target.emit("change"); },
+    async target(value) { const target = $("dialog-body").querySelector(".candidate-target-group") || $("dialog-body").querySelector("select"); target.value = value; await target.emit("change"); },
     submit: () => $("dialog-form").emit("submit")
   };
 }
