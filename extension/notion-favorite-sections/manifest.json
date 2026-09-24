@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FAVMOA",
-  "version": "0.1.33",
+  "version": "0.1.34",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAzhKOzNTBnTyJ1aw/684+oOZXxjAAWWIcqnVioEbMyWbK7CP44UtUu4AQfCVdVSbSpuUtcrGOemNYrGibu6QrhHTUVov/rDG9qUlCHR7QjJt46BmdtNY6fxggGCzLAVHnhbEqkNbxg1re1M0wYE+cTwEC+8bhcEhBUivjrDob2kV7lC/qdv9MlBbuPyQsOXl7zPJrFK2xUXMi13BVcKWqWNpZlh+jBKV31+98nXPnb8u8uAZKY4HSVgDV8UQoy4lp7LJICkvviXrOGZR0Un5mWMNbWRwK1NuLRUC4epSZYtgOCCAJTpVqwF2dfhIqd4rEnY6F6mdGKz28qhbi12PXZQIDAQAB",
   "description": "팹모아 — Organize links into groups and subgroups, find the current page, and switch to existing tabs.",
   "minimum_chrome_version": "116",

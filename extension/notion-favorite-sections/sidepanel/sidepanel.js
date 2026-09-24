@@ -191,6 +191,104 @@ function nameDialog(title, action, current = "") {
 function confirmDialog(title, description, submit, callback) {
   showDialog(title, submit, body => body.append(node("p", description, "form-note")), callback);
 }
+function destructiveDialog(action) {
+  const targetLibrary = action.libraryId || libraryId;
+  const label = action.type === "resetLibrary" ? "초기화" : action.type === "removeLink" ? "제거" : "그룹만 제거";
+  const title = action.type === "resetLibrary" ? "현재 보관함을 초기화할까요?" : action.type === "removeLink" ? "링크를 제거할까요?" : "그룹만 제거할까요?";
+  const inspect = catalog => {
+    const selected = catalog.libraries.find(item => item.id === targetLibrary);
+    if (!selected) return { available: false, text: "원래 보관함이 삭제됐습니다. 다른 보관함으로 대체하지 않습니다. 취소 후 다시 시작해 주세요." };
+    const groups = flattenGroups(selected), route = path => [selected.name, ...path.map(item => item.name)].join(" › ");
+    if (action.type === "removeLink") {
+      const owner = groups.find(item => item.group.links.some(link => link.id === action.linkId));
+      const link = owner?.group.links.find(item => item.id === action.linkId);
+      if (!link) return { available: false, text: "원래 링크가 삭제됐거나 이 보관함에서 찾을 수 없습니다. 다른 링크로 대체하지 않습니다. 취소 후 다시 선택해 주세요." };
+      return { available: true, text: `${link.title}\n${link.url}\n위치 · ${route(owner.path)}\n이 링크 1개만 팹모아에서 제거합니다. 원본 문서와 저장한 백업 파일은 그대로 둡니다.`, items: "" };
+    }
+    const source = groups.find(item => item.group.id === action.groupId);
+    if (action.type !== "resetLibrary" && (!source || source.group.id === SYSTEM_GROUP_ID)) return { available: false, text: "원래 그룹이 없거나 제거할 수 없는 그룹입니다. 다른 그룹으로 대체하지 않습니다. 취소 후 다시 선택해 주세요." };
+    const affected = action.type === "resetLibrary" ? groups : groups.filter(item => item.path.some(group => group.id === source.group.id));
+    const linkCount = affected.reduce((sum, item) => sum + item.group.links.length, 0);
+    const items = affected.map(item => `그룹 · ${route(item.path)}\n${item.group.links.map(link => `링크 · ${link.title}\n${link.url}`).join("\n")}`).join("\n");
+    const defaultGroup = groups.find(item => item.group.id === SYSTEM_GROUP_ID)?.group;
+    const text = action.type === "resetLibrary"
+      ? `${selected.name} · 그룹 ${affected.length}개${defaultGroup ? "(미분류 포함)" : ""} · 링크 ${linkCount}개\n이 보관함의 그룹·하위 그룹·링크만 비우고 빈 미분류 그룹으로 바꿉니다. 다른 보관함, 원본 문서와 저장한 백업 파일은 그대로 둡니다.`
+      : `제거할 그룹 · ${route(source.path)}\n이 그룹만 제거하고 링크 ${linkCount}개와 하위 그룹 ${affected.length - 1}개는 보존합니다.\n보존 위치 · ${source.parent ? route(source.path.slice(0, -1)) : defaultGroup ? route([defaultGroup]) : `${selected.name} › 미분류 그룹 (새로 만듭니다)`}\n원본 문서와 저장한 백업 파일은 그대로 둡니다.`;
+    return { available: true, text, items };
+  };
+  const original = inspect(state.catalog);
+  let inspected = original;
+  const available = () => inspected.available;
+  let revision = state.revision;
+  let needsReview = false, reviewing = false, reviewed = false;
+  let description, reviewBox, reviewNote, reviewButton, acknowledge, comparison;
+  const showImpact = (parent, heading, snapshot) => {
+    parent.append(node("dt", heading), node("dd", snapshot.text));
+    if (snapshot.items) {
+      const details = node("details"), contents = node("dd");
+      details.append(node("summary", "포함된 그룹·링크 자세히 보기"), node("p", snapshot.items));
+      contents.append(details); parent.append(contents);
+    }
+  };
+  const updateControls = () => {
+    $("dialog-submit").disabled = needsReview || reviewing || !available() || (reviewed && !acknowledge.checked);
+    reviewButton.disabled = reviewing; acknowledge.disabled = reviewing;
+  };
+  const submit = async () => {
+    if (needsReview || reviewing || !available() || (reviewed && !acknowledge.checked)) return false;
+    try {
+      await dispatch({ ...action, libraryId: targetLibrary }, revision, action.type === "resetLibrary" ? "확인한 보관함을 비웠습니다. 되돌리기로 복구할 수 있습니다." : action.type === "removeGroup" ? "그룹만 제거하고 내용은 보존했습니다. 되돌리기로 복구할 수 있습니다." : "팹모아에서 링크를 제거했습니다. 되돌리기로 복구할 수 있습니다.");
+      if (libraryId !== targetLibrary) { libraryId = targetLibrary; render(); }
+      return true;
+    }
+    catch (error) {
+      if (error.code === "CONFLICT") {
+        needsReview = true; acknowledge.checked = false; reviewBox.hidden = false;
+        reviewNote.textContent = "다른 화면에서 목록이 바뀌었습니다. 아직 실행하지 않았습니다. 최신 영향 범위를 먼저 검토해 주세요.";
+      }
+      throw error;
+    }
+  };
+  submit.afterSubmit = () => { updateControls(); if (needsReview && !reviewing) reviewButton.focus(); };
+  const reviewLatest = async () => {
+    if (reviewing || dialogBusy || !$("dialog").open || dialogSubmit !== submit) return;
+    reviewing = true; needsReview = true; acknowledge.checked = false;
+    reviewBox.setAttribute("aria-busy", "true"); $("dialog-error").textContent = ""; updateControls();
+    try {
+      const result = await platform.load();
+      if (!$("dialog").open || dialogSubmit !== submit) return;
+      if (!result?.ok || !Number.isSafeInteger(result.revision) || result.revision < Math.max(revision, state.revision)) throw new Error("Invalid review snapshot");
+      const catalog = validateCatalog(result.catalog);
+      inspected = inspect(catalog);
+      revision = result.revision; adopt({ ...result, catalog });
+      reviewed = true; needsReview = false; acknowledge.parentElement.hidden = !available();
+      description.replaceChildren(); showImpact(description, "최신 실행 내용", inspected);
+      comparison.replaceChildren();
+      if (available()) { showImpact(comparison, "처음 열었을 때", original); showImpact(comparison, "최신 영향 범위", inspected); }
+      reviewNote.textContent = available() ? "최신 목록을 읽었습니다. 같은 개수나 이름이어도 내용·위치가 바뀌었을 수 있습니다. 영향 범위를 확인하고 동의한 뒤 별도로 실행해 주세요. 검토만으로 변경하지 않습니다." : inspected.text;
+    } catch {
+      if (!$("dialog").open || dialogSubmit !== submit) return;
+      reviewNote.textContent = "최신 목록을 확인하지 못했습니다. 아무것도 변경하지 않았습니다. 다시 검토해 주세요.";
+    } finally {
+      if ($("dialog").open && dialogSubmit === submit) {
+        reviewing = false; reviewBox.setAttribute("aria-busy", "false"); updateControls();
+        (needsReview || !available() ? reviewButton : acknowledge).focus();
+      }
+    }
+  };
+  showDialog(title, label, body => {
+    description = node("dl", undefined, "edit-review-comparison destructive-description"); showImpact(description, "실행 내용", original);
+    reviewBox = node("div", undefined, "edit-review destructive-review"); reviewBox.hidden = available();
+    reviewNote = node("p", available() ? "" : inspected.text, "form-note destructive-review-note"); reviewNote.setAttribute("role", "status"); reviewNote.setAttribute("aria-atomic", "true");
+    reviewButton = button("최신 영향 범위 검토", reviewLatest, "quiet-button edit-review-button destructive-review-button");
+    comparison = node("dl", undefined, "edit-review-comparison destructive-review-comparison");
+    const confirmation = node("label", undefined, "edit-review-acknowledgement"); confirmation.hidden = true;
+    acknowledge = node("input"); acknowledge.type = "checkbox"; acknowledge.className = "edit-review-ack destructive-review-ack";
+    acknowledge.addEventListener("change", updateControls);
+    confirmation.append(acknowledge, node("span", "최신 영향 범위를 확인했고, 이 내용대로 실행합니다."));
+    reviewBox.append(reviewNote, reviewButton, comparison, confirmation); body.append(description, reviewBox); updateControls();
+  }, submit);
+}
 function groupColorDialog(group) {
   return metadataDialog({ title: "그룹 색상", action: { type: "setGroupColor", groupId: group.id }, group });
 }
@@ -812,7 +910,7 @@ function renderLink(link) {
     ["이름·주소 수정", () => linkDialog(link)], ["다른 그룹으로 이동", () => moveDialog(link)],
     ["위로 이동", () => dispatch({ type: "reorderLink", linkId: link.id, direction: "up" })],
     ["아래로 이동", () => dispatch({ type: "reorderLink", linkId: link.id, direction: "down" })],
-    ["팹모아에서 제거", () => { const revision = state.revision; confirmDialog("링크를 제거할까요?", `${link.title}\n원본 문서와 저장한 백업 파일은 그대로 둡니다.`, "제거", () => dispatch({ type: "removeLink", linkId: link.id }, revision)); }, true]
+    ["팹모아에서 제거", () => destructiveDialog({ type: "removeLink", linkId: link.id }), true]
   ], "more", `link:${libraryId}:${link.id}`));
   treeDrag.bindSource(row, { kind: "link", id: link.id });
   return row;
@@ -846,11 +944,7 @@ function renderGroup(view, searching, path = []) {
     ["다른 그룹으로 이동", () => moveGroupDialog(group)],
     ["위로 이동", () => dispatch({ type: "reorderGroup", groupId: group.id, direction: "up" })],
     ["아래로 이동", () => dispatch({ type: "reorderGroup", groupId: group.id, direction: "down" })],
-    ["그룹만 제거", () => {
-      const revision = state.revision;
-      const destination = path.length ? `상위 그룹 ‘${path.at(-1).name}’` : "미분류 그룹";
-      confirmDialog("그룹만 제거할까요?", `‘${group.name}’의 링크와 하위 그룹은 ${destination}으로 옮겨 보존합니다. 원본 문서는 바뀌지 않습니다.`, "그룹만 제거", () => dispatch({ type: "removeGroup", groupId: group.id }, revision));
-    }, true]
+    ["그룹만 제거", () => destructiveDialog({ type: "removeGroup", groupId: group.id }), true]
   );
   if (!linkSelection.isActive()) heading.append(menu(group.name, groupActions, "more", `menu:${libraryId}:${group.id}`));
   wrapper.append(heading);
@@ -1282,8 +1376,7 @@ $("backup-file").addEventListener("change", async event => {
   } catch (error) { announce(`백업을 가져오지 못했습니다. ${error.message}`, true); }
 });
 $("reset-library").addEventListener("click", () => {
-  const selected = library(); const revision = state.revision;
-  confirmDialog("현재 보관함을 초기화할까요?", `${selected.name} · 링크 ${linksOf(selected).length}개\n이 보관함의 그룹·하위 그룹·링크만 비웁니다. 다른 보관함, 원본 문서와 저장한 백업 파일은 그대로 둡니다.`, "초기화", () => dispatch({ type: "resetLibrary", libraryId: selected.id }, revision, "현재 보관함을 비웠습니다. 되돌리기로 복구할 수 있습니다."));
+  destructiveDialog({ type: "resetLibrary", libraryId });
 });
 document.addEventListener("keydown", event => {
   if ($("theme-dialog")?.open) return;
