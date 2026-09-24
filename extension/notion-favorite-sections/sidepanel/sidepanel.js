@@ -186,43 +186,123 @@ function destinationFields(parent, groupId) {
   return { group };
 }
 function nameDialog(title, action, current = "") {
-  const revision = state.revision;
-  let name;
-  showDialog(title, "저장", body => { name = field(body, "이름", current, { maxLength: 80 }); }, async () => {
-    const previousIds = action.type === "addLibrary" ? new Set(state.catalog.libraries.map(item => item.id)) : null;
-    const saved = await dispatch({ ...action, name: name.value.trim() }, revision);
-    if (saved && previousIds) {
-      const created = state.catalog.libraries.filter(item => !previousIds.has(item.id));
-      // Only follow the one library created by this successful operation.
-      // Failed/conflicting saves must not select another screen's new library.
-      if (created.length === 1) {
-        libraryId = created[0].id;
-        $("search").value = "";
-        suppressedFolds.clear();
-        dialogOrigin = $("library-picker");
-        dialogReturnKeys = [];
-        render();
-      }
-    }
-    return saved;
-  });
+  return metadataDialog({ title, action, current });
 }
 function confirmDialog(title, description, submit, callback) {
   showDialog(title, submit, body => body.append(node("p", description, "form-note")), callback);
 }
 function groupColorDialog(group) {
-  const revision = state.revision;
-  const targetLibrary = libraryId;
-  let editor;
-  showDialog("그룹 색상", "저장", body => {
-    editor = createGroupColorEditor({ documentRef: document, group });
-    body.append(editor.element);
-  }, async () => {
-    const color = editor.getColor();
-    editor.setBusy(true);
-    try { return await dispatch({ type: "setGroupColor", libraryId: targetLibrary, groupId: group.id, color }, revision, "그룹 색상을 저장했습니다. 되돌리기로 취소할 수 있어요."); }
-    finally { editor.setBusy(false); }
-  });
+  return metadataDialog({ title: "그룹 색상", action: { type: "setGroupColor", groupId: group.id }, group });
+}
+function metadataDialog({ title, action, current = "", group }) {
+  let revision = state.revision;
+  const targetLibrary = action.libraryId || libraryId;
+  const isColor = action.type === "setGroupColor";
+  let name, editor, reviewBox, reviewNote, comparison, acknowledge, reviewButton;
+  let needsReview = false, reviewing = false, needsAcknowledgement = false;
+  const inspect = catalog => {
+    if (action.type === "addLibrary") return { available: true, signature: "new-library", text: `보관함 ${catalog.libraries.length}개 · 새 보관함을 추가합니다.` };
+    const target = catalog.libraries.find(item => item.id === targetLibrary);
+    if (!target) return { available: false, text: "원래 보관함이 삭제됐습니다. 입력은 유지했습니다. 취소 후 새 위치에서 다시 시작해 주세요. 다른 보관함으로 자동 대체하지 않습니다." };
+    if (action.type === "renameLibrary" || (action.type === "addGroup" && action.parentGroupId == null)) {
+      return { available: true, signature: JSON.stringify([target.id, target.name]), text: `보관함 · ${target.name}${action.type === "addGroup" ? "\n그룹 추가 위치 · 보관함 최상위" : ""}` };
+    }
+    const groupId = action.type === "addGroup" ? action.parentGroupId : action.groupId;
+    const found = flattenGroups(target).find(value => value.group.id === groupId);
+    if (!found) return { available: false, text: "원래 그룹 또는 상위 그룹이 삭제됐습니다. 입력은 유지했습니다. 취소 후 새 위치에서 다시 시작해 주세요. 그룹을 자동으로 다시 만들거나 보관함 최상위로 옮기지 않습니다." };
+    if (action.type === "addGroup" && found.path.length >= MAX_GROUP_DEPTH) return { available: false, text: "상위 그룹의 깊이가 바뀌어 하위 그룹을 추가할 수 없습니다. 입력은 유지했습니다. 취소 후 더 얕은 위치에서 다시 시작해 주세요." };
+    const pathId = JSON.stringify(found.path.map(value => value.id));
+    const color = found.group.color || null;
+    return {
+      available: true, pathId,
+      signature: JSON.stringify([target.id, target.name, found.path.map(value => [value.id, value.name]), isColor ? color : null]),
+      text: `보관함 · ${target.name}\n그룹 경로 · ${found.path.map(value => value.name).join(" › ")}${isColor ? `\n색상 · ${color ? color.toUpperCase() : "기본 색상"}` : ""}`
+    };
+  };
+  const original = inspect(state.catalog);
+  let inspected = original;
+  const updateControls = () => {
+    $("dialog-submit").disabled = needsReview || reviewing || !inspected.available || (needsAcknowledgement && !acknowledge.checked);
+    reviewButton.disabled = reviewing; acknowledge.disabled = reviewing;
+  };
+  const submit = async () => {
+    if (needsReview || reviewing || !inspected.available || (needsAcknowledgement && !acknowledge.checked)) return false;
+    // Reading the color validates the draft only at save time, never during a
+    // read-only conflict review (including an unfinished/invalid hex input).
+    const value = isColor ? { color: editor.getColor() } : { name: name.value.trim() };
+    const previousIds = action.type === "addLibrary" ? new Set(state.catalog.libraries.map(item => item.id)) : null;
+    try {
+      const saved = await dispatch({ ...action, libraryId: targetLibrary, ...value }, revision, isColor ? "그룹 색상을 저장했습니다. 되돌리기로 취소할 수 있어요." : "이 브라우저에 저장했습니다.");
+      if (saved && previousIds) {
+        const created = state.catalog.libraries.filter(item => !previousIds.has(item.id));
+        // Compare at submit time; never select another screen's new library.
+        if (created.length === 1) {
+          libraryId = created[0].id; $("search").value = ""; suppressedFolds.clear();
+          dialogOrigin = $("library-picker"); dialogReturnKeys = []; render();
+        }
+      } else if (saved && libraryId !== targetLibrary) { libraryId = targetLibrary; render(); }
+      return saved;
+    } catch (error) {
+      if (error.code === "CONFLICT") {
+        needsReview = true; acknowledge.checked = false; reviewBox.hidden = false;
+        reviewNote.textContent = "다른 화면에서 목록이 바뀌었습니다. 입력은 유지했습니다. 최신 대상과 내용을 먼저 검토해 주세요.";
+      }
+      throw error;
+    }
+  };
+  submit.afterSubmit = () => { updateControls(); if (needsReview && !reviewing) reviewButton.focus(); };
+  const reviewLatest = async () => {
+    if (reviewing || dialogBusy || !$("dialog").open || dialogSubmit !== submit) return;
+    reviewing = true; needsReview = true; acknowledge.checked = false;
+    const disabled = new Map();
+    for (const control of $("dialog-body").querySelectorAll("input,select,button")) { disabled.set(control, control.disabled); control.disabled = true; }
+    reviewBox.setAttribute("aria-busy", "true");
+    reviewNote.textContent = "입력은 유지하고 최신 저장 목록을 확인하고 있어요…";
+    $("dialog-error").textContent = ""; updateControls();
+    try {
+      const result = await platform.load();
+      if (!$("dialog").open || dialogSubmit !== submit) return;
+      if (!result?.ok || !Number.isSafeInteger(result.revision) || result.revision < Math.max(revision, state.revision)) throw new Error("Invalid review snapshot");
+      const catalog = validateCatalog(result.catalog);
+      inspected = inspect(catalog); revision = result.revision; adopt({ ...result, catalog });
+      needsAcknowledgement = inspected.available && inspected.signature !== original.signature;
+      comparison.replaceChildren();
+      if (inspected.available) {
+        for (const [label, text] of [["처음 열었을 때", original.text], ["최신 저장 내용", inspected.text]]) comparison.append(node("dt", label), node("dd", text));
+        reviewNote.textContent = needsAcknowledgement
+          ? "대상의 이름·위치 또는 색상이 바뀌었습니다. 비교 내용을 확인하고 직접 동의한 뒤 입력한 내용을 저장해 주세요."
+          : "최신 목록을 확인했습니다. 입력한 내용을 검토한 뒤 저장을 눌러 주세요. 확인만으로는 저장하지 않습니다.";
+        if (inspected.pathId !== original.pathId) reviewNote.textContent += " 그룹 경로가 바뀌었습니다. 표시 이름이 같더라도 다른 그룹 경로입니다.";
+      } else reviewNote.textContent = inspected.text;
+      acknowledge.parentElement.hidden = !needsAcknowledgement;
+      needsReview = false;
+    } catch {
+      if (!$("dialog").open || dialogSubmit !== submit) return;
+      reviewNote.textContent = "최신 목록을 확인하지 못했습니다. 입력은 유지했습니다. 다시 검토해 주세요.";
+    } finally {
+      if ($("dialog").open && dialogSubmit === submit) {
+        for (const [control, wasDisabled] of disabled) control.disabled = wasDisabled;
+        reviewing = false; reviewBox.setAttribute("aria-busy", "false"); updateControls();
+        if (needsReview || !inspected.available) reviewButton.focus();
+        else if (needsAcknowledgement) acknowledge.focus();
+        else (name || reviewButton).focus();
+      }
+    }
+  };
+  showDialog(title, "저장", body => {
+    if (isColor) { editor = createGroupColorEditor({ documentRef: document, group }); body.append(editor.element); }
+    else name = field(body, "이름", current, { maxLength: 80 });
+    reviewBox = node("div", undefined, "edit-review metadata-review"); reviewBox.hidden = original.available;
+    reviewNote = node("p", original.available ? "" : original.text, "form-note metadata-review-note"); reviewNote.setAttribute("role", "status"); reviewNote.setAttribute("aria-atomic", "true");
+    reviewButton = button("입력 유지하고 최신 목록 검토", reviewLatest, "quiet-button edit-review-button metadata-review-button");
+    comparison = node("dl", undefined, "edit-review-comparison metadata-review-comparison");
+    const acknowledgement = node("label", undefined, "edit-review-acknowledgement"); acknowledgement.hidden = true;
+    acknowledge = node("input"); acknowledge.type = "checkbox"; acknowledge.className = "edit-review-ack metadata-review-ack";
+    acknowledge.addEventListener("change", updateControls);
+    acknowledgement.append(acknowledge, node("span", "최신 대상과 내용을 확인했고, 내 입력을 이 대상에 저장합니다."));
+    reviewBox.append(reviewNote, reviewButton, comparison, acknowledgement); body.append(reviewBox);
+    updateControls();
+  }, submit);
 }
 function linkDialog(link = null, destination = {}, { move = false } = {}) {
   let revision = state.revision;

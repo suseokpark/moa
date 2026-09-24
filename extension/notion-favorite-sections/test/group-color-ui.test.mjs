@@ -6,6 +6,7 @@ import { createGroupColorEditor, GROUP_COLOR_PRESETS } from "../src/group-colors
 import { flattenGroups, identifyUrl, MAX_GROUP_DEPTH, SYSTEM_GROUP_ID } from "../src/link-library.js";
 import { findSavedPage } from "../src/link-navigation.js";
 import { createLinkSelection } from "../src/link-selection.js";
+import { fixture as pickerFixture, flush } from "../test-support/candidate-picker-fixture.mjs";
 
 // Synthetic DOM behavior checks only: layout, native color picker interaction
 // and actual Chrome storage are tested separately and are not inferred here.
@@ -214,38 +215,36 @@ test("system group offers color but no protected structure actions; regular grou
 });
 
 test("group color dialog snapshots its target, rejects invalid input and recovers controls after save failure", async () => {
-  const start = script.indexOf("function groupColorDialog(group) {");
-  const end = script.indexOf("\nfunction linkDialog(", start);
-  assert.ok(start > 0 && end > start);
-  const document = documentFixture();
-  let submit, body, rejectSave;
-  const calls = [];
-  const sourceGroup = Object.freeze(group("work", "#112233"));
-  const context = vm.createContext({
-    state: { revision: 7 }, libraryId: "library-original", document, createGroupColorEditor,
-    dispatch: (...args) => { calls.push(args); return new Promise((resolve, reject) => { rejectSave = reject; }); },
-    showDialog(title, button, populate, onSubmit) {
-      assert.equal(title, "그룹 색상"); assert.equal(button, "저장");
-      body = document.createElement("div"); populate(body); submit = onSubmit;
-    },
-    sourceGroup
-  });
-  vm.runInContext(`${script.slice(start, end)}\ngroupColorDialog(sourceGroup);`, context);
-  assert.equal(calls.length, 0);
-  const hex = descendants(body).find(item => item.id === "group-color-hex");
-  hex.value = "invalid"; hex.emit("input");
-  await assert.rejects(submit(), /여섯 자리/u);
-  assert.equal(calls.length, 0);
+  const view = pickerFixture();
+  const initial = structuredClone(view.context.initial.catalog);
+  initial.libraries[0].groups[1].color = "#112233";
+  view.context.colorInitial = { catalog: initial, revision: 7 };
+  view.run("adopt(colorInitial);");
+  const sourceGroup = Object.freeze(view.run('library().groups.find(item => item.id === "parent")'));
+  view.context.sourceGroup = sourceGroup;
+  let rejectSave;
+  view.setResponse(() => new Promise((_resolve, reject) => { rejectSave = reject; }));
+  view.run("groupColorDialog(sourceGroup);");
+  assert.equal(view.$("dialog-title").textContent, "그룹 색상");
+  assert.equal(view.$("dialog-submit").textContent, "저장");
+  assert.equal(view.actions.length, 0);
+  const editor = view.$("dialog-body").querySelector(".group-color-editor");
+  const hex = editor.querySelector("#group-color-hex");
+  hex.value = "invalid"; await hex.emit("input");
+  await view.submit();
+  assert.match(view.$("dialog-error").textContent, /여섯 자리/u);
+  assert.equal(view.actions.length, 0);
   assert.notEqual(hex.disabled, true, "invalid input must remain editable");
-  hex.value = "#ABCDEF"; hex.emit("input");
-  vm.runInContext('state.revision = 99; libraryId = "library-other";', context);
-  const pending = submit();
-  const colorControls = descendants(body).filter(item => ["BUTTON", "INPUT"].includes(item.tagName));
+  hex.value = "#ABCDEF"; await hex.emit("input");
+  view.run('state.revision = 99; libraryId = "other-library";');
+  const pending = view.submit(); await flush();
+  const colorControls = editor.querySelectorAll("button,input");
   assert.equal(colorControls.every(item => item.disabled), true);
-  assert.deepEqual(JSON.parse(JSON.stringify(calls[0][0])), { type: "setGroupColor", libraryId: "library-original", groupId: "work", color: "#abcdef" });
-  assert.equal(calls[0][1], 7, "stale revisions must reach the service conflict guard, not overwrite new data");
+  assert.deepEqual(view.actions[0].action, { type: "setGroupColor", libraryId: "library-personal", groupId: "parent", color: "#abcdef" });
+  assert.equal(view.actions[0].expectedRevision, 7, "stale revisions must reach the service conflict guard, not overwrite new data");
   rejectSave(new Error("저장 실패"));
-  await assert.rejects(pending, /저장 실패/u);
+  await pending;
+  assert.match(view.$("dialog-error").textContent, /저장 실패/u);
   assert.equal(colorControls.every(item => item.disabled === false), true);
   assert.equal(hex.value, "#ABCDEF");
   assert.equal(sourceGroup.color, "#112233");

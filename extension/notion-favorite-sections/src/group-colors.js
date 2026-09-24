@@ -81,7 +81,14 @@ export function createGroupColorEditor({ documentRef = document, group }) {
       element.setAttribute("aria-busy", String(busy));
     },
     getColor() {
-      if (!read()) { hex.focus(); throw new Error(error.textContent); }
+      if (!read()) {
+        hex.focus();
+        const failure = new Error(error.textContent);
+        // A form may have temporarily disabled inputs before validation. Let
+        // its error handler focus this field after restoring those controls.
+        failure.focusTarget = hex;
+        throw failure;
+      }
       return draft;
     }
   };
