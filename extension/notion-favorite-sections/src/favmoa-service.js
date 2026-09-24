@@ -6,7 +6,7 @@ export const FAVMOA_LEGACY_BACKUP_KEY = "favmoa:legacy-backup:v1";
 export const FAVMOA_RESTORE_POINT_KEY = "favmoa:restore-point:v1";
 export const FAVMOA_SCHEMA_MIGRATION_BACKUP_KEY = "favmoa:schema-v1-backup:v1";
 const MIGRATION_SOURCE_KEYS = [FAVMOA_STORAGE_KEY, FAVMOA_UNDO_KEY, FAVMOA_RESTORE_POINT_KEY];
-const TYPES = new Set(["FAVMOA_GET", "FAVMOA_ACTION", "FAVMOA_IMPORT_LEGACY", "FAVMOA_IMPORT_BACKUP", "FAVMOA_UNDO", "FAVMOA_RESTORE_PREVIOUS_BACKUP"]);
+const TYPES = new Set(["FAVMOA_GET", "FAVMOA_PREVIEW_BACKUP", "FAVMOA_ACTION", "FAVMOA_IMPORT_LEGACY", "FAVMOA_IMPORT_BACKUP", "FAVMOA_UNDO", "FAVMOA_RESTORE_PREVIOUS_BACKUP"]);
 const TRUSTED_PATHS = new Set(["/sidepanel/sidepanel.html"]);
 
 export function isTrustedFavmoaSender(sender, runtimeId) {
@@ -93,6 +93,9 @@ export function createCatalogService({ storage, runtimeId }) {
     const restorePoint = decodeRestorePoint(stored[FAVMOA_RESTORE_POINT_KEY]);
     const hasRestorePoint = Boolean(restorePoint);
     if (message.type === "FAVMOA_GET") return { ok: true, ...current, canUndo, hasRestorePoint };
+    // Share the mutation queue so the shown revision and recovery target are
+    // coherent. Preview is read-only, including when v1 catalogs are normalized.
+    if (message.type === "FAVMOA_PREVIEW_BACKUP") return { ok: true, ...current, canUndo, hasRestorePoint, restoreCatalog: restorePoint };
     if (!Number.isSafeInteger(message.expectedRevision) || message.expectedRevision < 0) return failure("INVALID_REQUEST", "저장 버전이 필요합니다. 목록을 다시 불러와 주세요.");
     if (message.expectedRevision !== current.revision) return { ...failure("CONFLICT", "다른 창에서 목록이 변경되었습니다. 최신 목록을 확인한 뒤 다시 시도해 주세요."), conflict: true, ...current, canUndo, hasRestorePoint };
     if (current.revision === Number.MAX_SAFE_INTEGER) return failure("REVISION_LIMIT", "저장 버전을 더 이상 변경할 수 없습니다.");

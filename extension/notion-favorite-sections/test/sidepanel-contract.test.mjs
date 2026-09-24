@@ -27,6 +27,7 @@ function catalog(name) {
 class Element {
   constructor(tag) { this.tag = tag; this.children = []; this.listeners = new Map(); this.textContent = ""; this.value = ""; this.open = false; this.attributes = {}; this.dataset = {}; }
   append(...children) { this.children.push(...children); }
+  replaceChildren(...children) { this.children = children; this.textContent = ""; }
   addEventListener(type, listener) { this.listeners.set(type, listener); }
   setAttribute(name, value) { this.attributes[name] = String(value); }
   getAttribute(name) { return this.attributes[name] ?? null; }
@@ -107,7 +108,7 @@ test("importing an identical backup announces no change and preserves existing c
     const { context, messages, stored } = dialogFixture({ hasRestorePoint });
     const before = structuredClone(stored);
     context.restoreDialog(context.state.catalog, "same.json");
-    if (hasRestorePoint) assert.match(textOf(context.dialog.body), /같은 목록이면 기존 사본을 유지/u);
+    if (hasRestorePoint) assert.match(textOf(context.dialog.body), /기존 안전 사본도 그대로 유지/u);
     assert.equal(await context.dialog.submit(), true);
     assert.match(messages.at(-1), /현재 목록과 같아 변경하지 않았습니다/u);
     assert.doesNotMatch(messages.at(-1), /목록을 바꿨습니다/u);

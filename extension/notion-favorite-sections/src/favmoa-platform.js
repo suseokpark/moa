@@ -52,7 +52,7 @@ export function createPlatform({ chrome: chromeApi = globalThis.chrome, location
         ? await chromeApi.runtime.sendMessage(message)
         : await demoService.handle(message, { id: "demo", url: "chrome-extension://demo/sidepanel/sidepanel.html" });
       if (!response || typeof response.ok !== "boolean") return { ok: false, code: "NO_RESPONSE", error: "확장 프로그램을 새로고침하고 다시 시도해 주세요." };
-      if (!extension && response.ok && message.type !== "FAVMOA_GET") notify(response);
+      if (!extension && response.ok && !["FAVMOA_GET", "FAVMOA_PREVIEW_BACKUP"].includes(message.type)) notify(response);
       return response;
     } catch { return { ok: false, code: "CONNECTION_FAILED", error: "확장 프로그램과 연결하지 못했습니다. 새로고침 후 다시 시도해 주세요." }; }
   }
@@ -148,6 +148,7 @@ export function createPlatform({ chrome: chromeApi = globalThis.chrome, location
   return {
     mode: extension ? "extension" : "demo",
     load: () => request({ type: "FAVMOA_GET" }),
+    previewBackup: () => request({ type: "FAVMOA_PREVIEW_BACKUP" }),
     dispatch: (action, expectedRevision) => request({ type: "FAVMOA_ACTION", action, expectedRevision }),
     importLegacy: (expectedRevision) => request({ type: "FAVMOA_IMPORT_LEGACY", expectedRevision }),
     importBackup: (catalog, expectedRevision) => request({ type: "FAVMOA_IMPORT_BACKUP", catalog, expectedRevision }),

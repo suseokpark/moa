@@ -1078,24 +1078,101 @@ function exportBackup() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   announce("JSON 백업 파일 저장을 요청했습니다. 다운로드를 확인하고, 제목·URL이 담긴 파일을 안전하게 보관하세요.");
 }
-function restoreDialog(catalog, source) {
-  const normalized = validateCatalog(catalog);
-  const revision = state.revision;
-  showDialog("백업으로 전체 목록을 바꿀까요?", "전체 목록 바꾸기", body => {
+function restoreDialog(catalog, source, { previous = false } = {}) {
+  // A file is fixed for the lifetime of this dialog. A checkpoint, unlike a
+  // file, can be replaced/consumed and must be read at a guarded revision.
+  let normalized = previous ? null : validateCatalog(catalog);
+  let revision = state.revision;
+  let needsReview = previous, reviewing = false, reviewed = false;
+  let comparison, reviewBox, reviewNote, reviewButton, acknowledge;
+  const showCatalog = (parent, heading, value) => {
+    const rows = value.libraries.map(item => ({ item, groups: flattenGroups(item) }));
+    parent.append(node("dt", heading), node("dd", `보관함 ${rows.length}개 · 그룹 ${rows.reduce((sum, row) => sum + row.groups.length, 0)}개 · 링크 ${allLinkCount(value)}개`));
+    const details = node("details"), contents = node("dd");
+    details.append(node("summary", "보관함·그룹·링크 자세히 보기"), node("p", rows.map(({ item, groups }) => `보관함 · ${item.name}\n${groups.map(row => `그룹 · ${row.path.map(group => group.name).join(" › ")}\n${row.group.links.map(link => `${link.title}\n${link.url}`).join("\n")}`).join("\n")}`).join("\n")));
+    contents.append(details); parent.append(contents);
+  };
+  const showComparison = (current, restoreCatalog, hasRestorePoint) => {
+    comparison.replaceChildren();
+    showCatalog(comparison, reviewed ? "최신 현재 목록" : "현재 목록", current);
+    if (normalized) showCatalog(comparison, previous ? "안전 사본에서 복구할 목록" : "파일에서 가져올 목록 (고정)", normalized);
+    else comparison.append(node("dt", "복구할 목록"), node("dd", reviewed ? "안전 사본이 없거나 읽을 수 없습니다. 다른 목록으로 대체하지 않습니다." : "아직 읽지 않았습니다. 미리보기로 복구할 내용을 확인해 주세요."));
+    if (previous) {
+      comparison.append(node("dt", "복구 영향"), node("dd", "모든 보관함을 위 안전 사본 내용으로 바꿉니다. 안전 사본은 성공적으로 복구하면 사용 완료됩니다. 복구 자체는 다음 내용 편집 전까지 되돌릴 수 있습니다."));
+      return;
+    }
+    const same = JSON.stringify(current) === JSON.stringify(normalized);
+    comparison.append(node("dt", "안전 사본 영향"), node("dd", same
+      ? "현재 목록과 같아 변경하지 않습니다. 기존 안전 사본도 그대로 유지합니다."
+      : hasRestorePoint ? "기존 안전 사본 1개를 교체 직전의 현재 목록으로 바꿉니다. 기존 안전 사본은 더 이상 복구할 수 없습니다."
+        : "교체 직전의 현재 목록을 안전 사본으로 보관합니다."));
+    if (!same && restoreCatalog) showCatalog(comparison, "교체되어 사라질 기존 안전 사본", restoreCatalog);
+  };
+  const updateControls = () => {
+    $("dialog-submit").disabled = needsReview || reviewing || !normalized || (reviewed && !acknowledge.checked);
+    reviewButton.disabled = reviewing; acknowledge.disabled = reviewing;
+  };
+  const submit = async () => {
+    if (needsReview || reviewing || !normalized || (reviewed && !acknowledge.checked)) return false;
+    try {
+      const result = await requireResult(previous ? platform.restorePreviousBackup(revision) : platform.importBackup(normalized, revision));
+      adopt(result);
+      announce(previous ? "확인한 안전 사본으로 이전 목록을 복구했습니다. 되돌리기로 복구 전 목록을 되찾을 수 있어요." : result.revision === revision
+        ? "현재 목록과 같아 변경하지 않았습니다. 기존 안전 사본도 유지됩니다."
+        : "백업으로 목록을 바꿨습니다. 백업 메뉴의 ‘복원 전 목록 복구’로 이전 목록을 되찾을 수 있어요.");
+      return true;
+    } catch (error) {
+      if (error.code === "CONFLICT" || error.code === "NO_RESTORE_POINT") {
+        needsReview = true; acknowledge.checked = false; reviewBox.hidden = false;
+        reviewNote.textContent = `현재 목록 또는 안전 사본이 바뀌었습니다. 아직 복원하지 않았습니다. 최신 현재 목록과 안전 사본 영향을 검토해 주세요.${previous ? "" : " 파일 내용은 그대로 유지했습니다."}`;
+      }
+      throw error;
+    }
+  };
+  submit.afterSubmit = () => { updateControls(); if (needsReview && !reviewing) reviewButton.focus(); };
+  const reviewLatest = async () => {
+    if (reviewing || dialogBusy || !$("dialog").open || dialogSubmit !== submit) return;
+    reviewing = true; needsReview = true; acknowledge.checked = false;
+    reviewBox.setAttribute("aria-busy", "true"); $("dialog-error").textContent = ""; updateControls();
+    try {
+      const result = await platform.previewBackup();
+      if (!$("dialog").open || dialogSubmit !== submit) return;
+      if (!result?.ok || !Number.isSafeInteger(result.revision) || result.revision < Math.max(revision, state.revision)
+        || typeof result.hasRestorePoint !== "boolean" || result.hasRestorePoint !== Boolean(result.restoreCatalog)) throw new Error("Invalid backup preview");
+      const current = validateCatalog(result.catalog), restoreCatalog = result.restoreCatalog ? validateCatalog(result.restoreCatalog) : null;
+      if (previous) normalized = restoreCatalog;
+      revision = result.revision; reviewed = true; needsReview = false;
+      // Preview contents stay in this dialog, not a second full catalog in UI state.
+      adopt({ ok: true, catalog: current, revision, canUndo: result.canUndo, hasRestorePoint: result.hasRestorePoint });
+      showComparison(current, restoreCatalog, result.hasRestorePoint);
+      acknowledge.parentElement.hidden = !normalized;
+      reviewNote.textContent = normalized ? "최신 복원 내용을 읽었습니다. 전체 목록과 안전 사본에 미치는 영향을 확인하고 동의한 뒤 별도로 실행해 주세요. 검토만으로 변경하지 않습니다." : "안전 사본이 없거나 읽을 수 없습니다. 현재 목록은 그대로 유지합니다. 취소하거나 다시 검토해 주세요.";
+    } catch {
+      if (!$("dialog").open || dialogSubmit !== submit) return;
+      reviewNote.textContent = "최신 복원 내용을 확인하지 못했습니다. 아무것도 변경하지 않았습니다. 다시 검토해 주세요.";
+    } finally {
+      if ($("dialog").open && dialogSubmit === submit) {
+        reviewing = false; reviewBox.setAttribute("aria-busy", "false"); updateControls();
+        (needsReview || !normalized ? reviewButton : acknowledge).focus();
+      }
+    }
+  };
+  showDialog(previous ? "복원 전 목록으로 돌아갈까요?" : "백업으로 전체 목록을 바꿀까요?", previous ? "이전 목록 복구" : "전체 목록 바꾸기", body => {
     body.append(node("p", source, "form-note"));
-    const comparison = node("dl", undefined, "backup-comparison");
-    comparison.append(node("dt", "현재 목록"), node("dd", `보관함 ${state.catalog.libraries.length}개 · 링크 ${allLinkCount(state.catalog)}개`), node("dt", "가져올 목록"), node("dd", `보관함 ${normalized.libraries.length}개 · 링크 ${allLinkCount(normalized)}개`));
-    body.append(comparison, node("p", "링크를 합치는 기능이 아닙니다. 모든 보관함이 파일의 내용으로 바뀝니다. 바꾸기 직전 목록은 이 브라우저에 별도 안전 사본으로 보관합니다.", "form-note"));
-    if (state.hasRestorePoint) body.append(node("p", "실제로 목록이 바뀌면 기존 안전 사본 1개를 교체 직전 목록으로 바꿉니다. 같은 목록이면 기존 사본을 유지합니다.", "form-note"));
+    comparison = node("dl", undefined, "edit-review-comparison backup-impact");
+    showComparison(state.catalog, null, state.hasRestorePoint);
+    body.append(comparison, node("p", previous ? "먼저 복구할 목록을 미리 보세요. 현재 목록을 별도 파일로 보관하려면 아래 JSON 저장을 사용하세요." : "링크를 합치는 기능이 아닙니다. 모든 보관함이 파일의 내용으로 바뀝니다. 바꾸기 직전 목록은 이 브라우저에 별도 안전 사본으로 보관합니다.", "form-note"));
     body.append(button("현재 목록을 먼저 JSON으로 저장", exportBackup, "quiet-button"));
-  }, async () => {
-    const result = await requireResult(platform.importBackup(normalized, revision));
-    adopt(result);
-    announce(result.revision === revision
-      ? "현재 목록과 같아 변경하지 않았습니다. 기존 안전 사본도 유지됩니다."
-      : "백업으로 목록을 바꿨습니다. 백업 메뉴의 ‘복원 전 목록 복구’로 이전 목록을 되찾을 수 있어요.");
-    return true;
-  });
+    reviewBox = node("div", undefined, "edit-review backup-review");
+    reviewNote = node("p", "현재 목록과 기존 안전 사본을 다시 읽어 비교할 수 있습니다.", "form-note backup-review-note");
+    reviewNote.setAttribute("role", "status"); reviewNote.setAttribute("aria-atomic", "true");
+    reviewButton = button(previous ? "복구할 목록 미리보기 / 다시 검토" : "최신 복원 내용 검토", reviewLatest, "quiet-button edit-review-button backup-review-button");
+    const confirmation = node("label", undefined, "edit-review-acknowledgement"); confirmation.hidden = true;
+    acknowledge = node("input"); acknowledge.type = "checkbox"; acknowledge.className = "edit-review-ack backup-review-ack";
+    acknowledge.addEventListener("change", updateControls);
+    confirmation.append(acknowledge, node("span", "최신 현재 목록·복원할 내용·안전 사본 영향을 확인했고, 이 내용대로 실행합니다."));
+    reviewBox.append(reviewNote, reviewButton, confirmation); body.append(reviewBox); updateControls();
+  }, submit);
 }
 function chooseOpenTabs() { return chooseCandidateLinks(); }
 function chooseBookmarks() { return chooseCandidateLinks({ bookmarks: true }); }
@@ -1357,11 +1434,7 @@ $("import-legacy").addEventListener("click", () => {
 $("import-bookmarks").addEventListener("click", () => chooseBookmarks().catch(error => announce(error.message, true)));
 $("export-backup").addEventListener("click", exportBackup);
 $("restore-previous-backup").addEventListener("click", () => {
-  const revision = state.revision;
-  confirmDialog("복원 전 목록으로 돌아갈까요?", "현재 전체 보관함을 마지막 JSON 복원 직전의 목록으로 바꿉니다. 안전 사본은 한 번 복구하면 사용 완료됩니다. 이 복구 자체는 다음 변경 전까지 ‘되돌리기’로 취소할 수 있습니다.", "이전 목록 복구", async () => {
-    adopt(await requireResult(platform.restorePreviousBackup(revision)));
-    announce("백업을 불러오기 직전 목록을 복구했습니다."); return true;
-  });
+  restoreDialog(null, "이 브라우저의 복원 전 안전 사본", { previous: true });
 });
 $("import-backup").addEventListener("click", () => $("backup-file").click());
 $("backup-file").addEventListener("change", async event => {
