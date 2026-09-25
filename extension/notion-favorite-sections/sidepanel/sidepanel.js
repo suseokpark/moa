@@ -1352,7 +1352,11 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
   };
   const renderCandidates = () => {
     const query = filter.value.trim().toLocaleLowerCase();
-    matched = candidates.filter(item => `${item.title} ${item.url} ${item.folderPath || ""}`.toLocaleLowerCase().includes(query));
+    const terms = [...new Set(query.split(/\s+/u).filter(Boolean))];
+    matched = candidates.filter(item => {
+      const fields = [item.title, item.url, item.folderPath || ""].map(value => value.toLocaleLowerCase());
+      return terms.every(term => fields.some(value => value.includes(term)));
+    });
     shown = matched.slice(0, limit);
     list.replaceChildren();
     for (const item of shown) {
@@ -1518,7 +1522,9 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
       targetLibrary = reviewLibrary.value; refreshDestination("", { chooseNewParent: true });
     });
     filter = field(body, `${itemName} 검색`, "", { type: "search", required: false }); filter.disabled = true;
-    if (bookmarks) filter.placeholder = "이름, 주소 또는 원본 폴더";
+    filter.placeholder = bookmarks ? "이름·주소·원본 폴더에서 검색" : "이름·주소에서 검색";
+    const searchHelp = node("p", `${bookmarks ? "이름·주소·원본 폴더" : "이름·주소"}에서 단어 순서와 대소문자에 관계없이 모든 단어를 찾습니다. 예: ‘디자인 가이드’ = ‘가이드 디자인’.`, "form-note");
+    searchHelp.id = "candidate-search-help"; filter.setAttribute("aria-describedby", searchHelp.id); body.append(searchHelp);
     filter.addEventListener("input", () => { limit = 200; renderCandidates(); });
     const controls = node("div", undefined, "tab-selection-controls");
     count = node("p", "0개 선택", "form-note"); count.setAttribute("role", "status"); count.setAttribute("aria-atomic", "true");

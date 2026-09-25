@@ -152,11 +152,11 @@ test("a currently open but nonmatching link does not leak into multiword results
   assert.equal(f.actions.length, 0);
 });
 
-test("tab candidate filtering retains its existing phrase search contract", async () => {
+test("tab candidate filtering now shares the main tree's order-independent search contract", async () => {
   const f = fixture([{ title: "Alpine Sunset", url: "https://example.org/guide" }]);
   await f.open();
   await f.search("sunset alpine");
-  assert.equal(f.checks().length, 0);
+  assert.equal(f.checks().length, 1);
   await f.search("alpine sunset");
   assert.equal(f.checks().length, 1);
   assert.equal(f.checks()[0].getAttribute("aria-label"), "Alpine Sunset 선택");
