@@ -96,13 +96,12 @@ export async function runFind(persona) {
       r.check("공백에 지우기 버튼을 강요하지 않음", f.$("clear-search").hidden, true);
       r.check("접힌 그룹 자료는 평상시 숨겨짐", f.rows().length, groupIn(data.catalog, data.rootId).links.length);
       await f.query("참고 자료");
-      const previousQuery = f.$("search").value;
       f.$("library-picker").value = SECONDARY_LIBRARY; await f.$("library-picker").emit("change");
       r.check("보관함 전환은 선택한 보관함으로 이동", f.run("libraryId"), SECONDARY_LIBRARY);
-      r.note(`기존 보관함 전환 후 검색어=${JSON.stringify(f.$("search").value)}, 새 보관함 검색 결과=${f.rows().length}, 새 보관함 실제 링크=1개.`);
-      if (f.$("search").value === previousQuery && f.rows().length === 0) r.issue("library-search-carryover", "이전 검색어 때문에 새 보관함이 빈 것처럼 보일 수 있음", "첫 보관함에서 '참고 자료' 검색 후 다른 보관함을 고르자 검색어가 유지되어 실제 링크 1개가 있어도 결과는 0개였습니다.", "보관함을 바꿀 때 검색을 지우거나 '이전 검색이 적용 중' 안내와 바로 해제 동작을 제공합니다.");
-      await f.$("clear-search").emit("click");
-      r.check("검색 해제로 새 보관함 자료 발견", f.renderedIds(), ["audit-other-focus"]);
+      r.check("다른 보관함 선택은 이전 검색을 자동 해제", f.$("search").value, "");
+      r.check("별도 검색 해제 없이 새 보관함 자료 발견", f.renderedIds(), ["audit-other-focus"]);
+      r.check("전환 후 검색 지우기를 강요하지 않음", f.$("clear-search").hidden, true);
+      r.note("0.1.38부터 명시적 보관함 전환은 검색을 비우는 계약입니다. 검색 잔존 마찰 기록을 회귀 기대값으로 전환했으며 기존 감사 원장은 보존합니다.");
       break;
     }
     case 6: {

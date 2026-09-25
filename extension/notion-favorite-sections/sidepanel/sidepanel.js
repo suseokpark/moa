@@ -13,6 +13,7 @@ const platform = createPlatform();
 const linkSelection = createLinkSelection();
 let state = null;
 let libraryId = "";
+let libraryViewGeneration = 0;
 let currentPage = null;
 let openTabs = [];
 let openTabKeys = new Set();
@@ -37,14 +38,14 @@ const interactionGuard = createInteractionGuard({ onIdle: flushPendingUI });
 const treeDrag = createTreeDrag({
   getContext: () => ({ library: library(), libraryId, catalogRevision: state?.revision, busy: linkSelection.isActive() || mutationBusy || dialogBusy || Boolean($("dialog")?.open || $("theme-dialog")?.open) }),
   onMove: async (action, revision) => {
-    const initiatingLibrary = libraryId, initiatingDialogGeneration = dialogGeneration;
+    const initiatingLibrary = libraryId, initiatingViewGeneration = libraryViewGeneration, initiatingDialogGeneration = dialogGeneration;
     const targetLibrary = action.libraryId || libraryId;
     const target = state.catalog.libraries.find(item => item.id === targetLibrary);
     const rows = target ? flattenGroups(target) : [];
     const source = rows.find(item => action.linkId ? item.group.links.some(link => link.id === action.linkId) : item.group.id === action.groupId);
     const sameLocation = source && (action.linkId ? source.group.id === action.targetGroupId : (source.parent?.id ?? null) === (action.targetParentGroupId ?? null));
     await dispatch({ ...action, libraryId: targetLibrary, revealTarget: true }, revision, sameLocation ? "이미 이 위치에 있습니다." : "이동했습니다. 되돌리기로 취소할 수 있어요.");
-    if (!sameLocation && libraryId === initiatingLibrary && dialogGeneration === initiatingDialogGeneration && !$("theme-dialog")?.open) {
+    if (!sameLocation && libraryId === initiatingLibrary && libraryViewGeneration === initiatingViewGeneration && dialogGeneration === initiatingDialogGeneration && !$("theme-dialog")?.open) {
       revealTreeResult({ libraryId: targetLibrary, linkId: action.linkId, groupId: action.groupId });
     }
   },
@@ -1523,7 +1524,19 @@ $("save-current").addEventListener("click", revealCurrentPage);
 $("save-tabs").addEventListener("click", chooseOpenTabs);
 $("clear-search").addEventListener("click", clearSearch);
 $("backup-shortcut").addEventListener("click", openBackupSettings);
-$("library-picker").addEventListener("change", event => { libraryId = event.target.value; suppressedFolds.clear(); render(); });
+$("library-picker").addEventListener("change", event => {
+  const nextLibraryId = event.target.value;
+  if (!state?.catalog.libraries.some(item => item.id === nextLibraryId)) {
+    $("library-picker").value = libraryId;
+    return;
+  }
+  if (nextLibraryId === libraryId) return;
+  // A round trip to the same ID is still a new viewing intent.
+  libraryViewGeneration++;
+  linkSelection.stop();
+  pendingTreeEffect = null;
+  libraryId = nextLibraryId; $("search").value = ""; suppressedFolds.clear(); render();
+});
 $("search").addEventListener("input", render);
 $("undo").addEventListener("click", async () => { try { adopt(await requireResult(platform.undo(state.revision))); announce("마지막 내용 편집을 되돌렸습니다. 직접 접고 펼친 상태는 유지됩니다."); } catch (error) { announce(error.message, true); } });
 $("import-legacy").addEventListener("click", legacyImportDialog);
