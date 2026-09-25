@@ -15,7 +15,7 @@ test("manifest retires page injection and grants only local link and optional bo
   const popup = await read("popup/popup.html");
 
   assert.equal(manifest.manifest_version, 3);
-  assert.equal(manifest.version, "0.1.38");
+  assert.equal(manifest.version, "0.1.39");
   assert.equal(rootPackage.version, manifest.version);
   assert.ok(popup.includes(`data-version>${manifest.version}<`));
   assert.equal(manifest.minimum_chrome_version, "116");

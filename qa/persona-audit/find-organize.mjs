@@ -62,8 +62,9 @@ export async function runFind(persona) {
       await f.query("fOcUs");
       r.check("영문 대소문자 구분 없이 부분 제목 검색", f.renderedIds(), [data.target.id]);
       await f.query(`focus ${persona.interest}`);
-      r.note(`단어 순서를 바꾼 검색어 ${JSON.stringify(`focus ${persona.interest}`)}에서 ${f.rows().length}개가 표시되었습니다.`);
-      if (f.rows().length === 0) r.issue("search-ordered-substring", "단어 순서를 바꾸면 같은 제목을 찾기 어려움", `제목 ${JSON.stringify(data.target.title)}는 focus로 검색되지만 focus + 관심사 역순 조합은 0건입니다.`, "여러 검색어를 공백으로 나누어 모두 포함하는 제목·주소·경로를 찾는 방식을 검토합니다.");
+      r.check("단어 순서를 바꿔도 모든 단어를 가진 대상을 찾음", f.renderedIds(), [data.target.id]);
+      r.check("역순 검색의 결과 수 안내", f.$("link-count").textContent, `검색 결과 1개 / 전체 ${data.size}개`);
+      r.note("0.1.39부터 메인 트리는 공백으로 나눈 모든 단어를 제목·주소·그룹 경로에서 찾습니다. 순서 의존 마찰 기록을 회귀 기대값으로 전환했고 기존 감사 원장은 보존합니다.");
       await f.query("FOCUS");
       r.check("검색어를 줄이면 동일 대상으로 복귀", f.renderedIds(), [data.target.id]);
       break;

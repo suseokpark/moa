@@ -885,12 +885,19 @@ function menu(label, actions, iconName = "more", focusKey = "") {
   details.addEventListener("toggle", () => positionMenu(details));
   details.append(summary, body); return details;
 }
-function projectGroup(group, query, ancestorMatches = false) {
-  const matches = value => String(value).toLocaleLowerCase().includes(query);
-  const groupMatches = !query || ancestorMatches || matches(group.name);
-  const children = group.groups.map(child => projectGroup(child, query, groupMatches)).filter(Boolean);
-  const links = group.links.filter(link => groupMatches || matches(link.title) || matches(link.url));
-  if (query && !groupMatches && !children.length && !links.length) return null;
+function projectGroup(group, query) {
+  const terms = typeof query === "string" ? query.trim().toLocaleLowerCase().split(/\s+/u).filter(Boolean) : query;
+  const name = terms.length ? group.name.toLocaleLowerCase() : "";
+  // Pass only unmatched terms down this branch; siblings never share matches.
+  const remaining = terms.filter(term => !name.includes(term));
+  const groupMatches = remaining.length === 0;
+  const children = group.groups.map(child => projectGroup(child, remaining)).filter(Boolean);
+  const links = group.links.filter(link => {
+    if (groupMatches) return true;
+    const title = link.title.toLocaleLowerCase(), url = link.url.toLocaleLowerCase();
+    return remaining.every(term => title.includes(term) || url.includes(term));
+  });
+  if (!groupMatches && !children.length && !links.length) return null;
   return { group, children, links, count: links.length + children.reduce((sum, child) => sum + child.count, 0),
     hasCurrent: Boolean(pageKey && group.links.some(link => safeKey(link.url) === pageKey)) || children.some(child => child.hasCurrent) };
 }
@@ -1050,11 +1057,12 @@ function render() {
   $("library-picker").replaceChildren();
   for (const value of state.catalog.libraries) option($("library-picker"), value.name, value.id, value.id === libraryId);
   const query = $("search").value.trim().toLocaleLowerCase();
+  const terms = [...new Set(query.split(/\s+/u).filter(Boolean))];
   $("clear-search").hidden = !query;
   renderSavedLocation();
   $("tree").replaceChildren();
   const total = linksOf(selectedLibrary).length;
-  const visibleGroups = selectedLibrary.groups.map(group => projectGroup(group, query)).filter(Boolean);
+  const visibleGroups = selectedLibrary.groups.map(group => projectGroup(group, terms)).filter(Boolean);
   const shown = visibleGroups.reduce((sum, view) => sum + view.count, 0);
   for (const view of visibleGroups) {
     if (!query && !total && selectedLibrary.groups.length === 1 && view.group.id === SYSTEM_GROUP_ID && !view.children.length) continue;
