@@ -1295,11 +1295,14 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
   let savedLinks = linksOf(library());
   const selection = new Set();
   let candidates = [], matched = [], shown = [], loaded = false, limit = 200;
+  let selectedOnly = false, reviewLimit = 200;
   let sourceResult, needsReview = false, reviewing = false;
   let newGroupMode = false;
   const itemName = bookmarks ? "북마크" : "탭";
   let filter, list, count, summary, selectVisible, selectResults, resultScope, clearSelection, more, retry, to, reviewBox, reviewNote, reviewButton, reviewLibrary;
+  let selectionReview, selectionReviewHelp;
   let newGroupToggle, newGroupFields, newGroupName, newGroupParent, newGroupPreview;
+  const canChangeSelection = () => loaded && !reviewing && !dialogBusy && $("dialog").open && dialogSubmit === submit;
   const destination = () => destinationCatalog.libraries.find(item => item.id === targetLibrary);
   const parentChoice = () => {
     if (!destination()) return null;
@@ -1326,10 +1329,14 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
     count.textContent = `${selection.size}개 선택${hidden ? ` · 화면 밖 ${hidden}개 포함` : ""}`;
     selectVisible.checked = shown.length > 0 && visibleCount === shown.length;
     selectVisible.indeterminate = visibleCount > 0 && visibleCount < shown.length;
-    selectVisible.disabled = reviewing || !loaded || !shown.length;
-    selectResults.disabled = reviewing || !loaded || !matched.length;
+    selectVisible.disabled = selectedOnly || reviewing || !loaded || !shown.length;
+    selectVisible.parentElement.hidden = selectedOnly;
+    selectResults.disabled = selectedOnly || reviewing || !loaded || !matched.length;
     clearSelection.disabled = reviewing || !selection.size;
-    filter.disabled = reviewing || !loaded;
+    selectionReview.disabled = reviewing || dialogBusy || !loaded || (!selectedOnly && !selection.size);
+    selectionReview.setAttribute("aria-pressed", String(selectedOnly));
+    selectionReviewHelp.hidden = !selectedOnly;
+    filter.disabled = selectedOnly || reviewing || !loaded;
     more.disabled = reviewing;
     const destinationDisabled = reviewing || !loaded || !candidates.length || !destination();
     to.group.disabled = newGroupMode || destinationDisabled;
@@ -1353,33 +1360,40 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
   const renderCandidates = () => {
     const query = filter.value.trim().toLocaleLowerCase();
     const terms = [...new Set(query.split(/\s+/u).filter(Boolean))];
-    matched = candidates.filter(item => {
+    matched = selectedOnly ? candidates.filter(item => selection.has(item.key)) : candidates.filter(item => {
       const fields = [item.title, item.url, item.folderPath || ""].map(value => value.toLocaleLowerCase());
       return terms.every(term => fields.some(value => value.includes(term)));
     });
-    shown = matched.slice(0, limit);
+    shown = matched.slice(0, selectedOnly ? reviewLimit : limit);
     list.replaceChildren();
     for (const item of shown) {
       const row = node("label", undefined, "check-row");
       const check = node("input"); check.type = "checkbox"; check.checked = selection.has(item.key);
       check.setAttribute("aria-label", `${item.title} 선택`);
       check.addEventListener("change", () => {
+        if (!canChangeSelection() || !check.isConnected) return;
         if (check.checked && selection.size >= 1000) {
           check.checked = false; $("dialog-error").textContent = "한 번에 최대 1,000개까지 담을 수 있어요. 선택을 줄여 주세요.";
         } else {
           if (check.checked) selection.add(item.key); else selection.delete(item.key);
           $("dialog-error").textContent = "";
         }
-        updateSelection();
+        if (selectedOnly && !check.checked) {
+          // Removing a review row must not strand keyboard focus on the body.
+          const index = shown.indexOf(item);
+          renderCandidates();
+          const checks = [...list.querySelectorAll("input")];
+          (checks[Math.min(index, checks.length - 1)] || selectionReview).focus();
+        } else updateSelection();
       });
       const text = node("span", item.title); text.append(node("small", item.url));
       if (bookmarks && item.folderPath) text.append(node("small", `폴더 · ${item.folderPath}`));
       row.append(check, text); list.append(row);
     }
-    if (!shown.length) list.append(node("p", candidates.length ? "검색 결과가 없습니다." : `새로 담을 ${itemName}${bookmarks ? "가" : "이"} 없습니다. 이미 저장한 페이지와 지원하지 않는 주소는 제외했어요.`, "form-note"));
+    if (!shown.length) list.append(node("p", selectedOnly ? "선택한 항목이 없습니다. ‘선택한 항목만 보기’를 다시 눌러 목록에서 골라 주세요." : candidates.length ? "검색 결과가 없습니다." : `새로 담을 ${itemName}${bookmarks ? "가" : "이"} 없습니다. 이미 저장한 페이지와 지원하지 않는 주소는 제외했어요.`, "form-note"));
     more.hidden = shown.length >= matched.length;
     more.textContent = `더 보기 (${shown.length}/${matched.length})`;
-    selectResults.hidden = resultScope.hidden = shown.length >= matched.length;
+    selectResults.hidden = resultScope.hidden = selectedOnly || shown.length >= matched.length;
     selectResults.textContent = `${query ? "검색 결과 전체" : "전체"} ${matched.length}개 선택`;
     resultScope.textContent = `${matched.length}개 중 ${shown.length}개 표시. 전체 선택은 화면 밖 결과도 포함하며 기존 선택을 유지합니다.`;
     updateSelection();
@@ -1525,24 +1539,36 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
     filter.placeholder = bookmarks ? "이름·주소·원본 폴더에서 검색" : "이름·주소에서 검색";
     const searchHelp = node("p", `${bookmarks ? "이름·주소·원본 폴더" : "이름·주소"}에서 단어 순서와 대소문자에 관계없이 모든 단어를 찾습니다. 예: ‘디자인 가이드’ = ‘가이드 디자인’.`, "form-note");
     searchHelp.id = "candidate-search-help"; filter.setAttribute("aria-describedby", searchHelp.id); body.append(searchHelp);
-    filter.addEventListener("input", () => { limit = 200; renderCandidates(); });
+    filter.addEventListener("input", () => { if (!canChangeSelection() || selectedOnly) return; limit = 200; renderCandidates(); });
     const controls = node("div", undefined, "tab-selection-controls");
     count = node("p", "0개 선택", "form-note"); count.setAttribute("role", "status"); count.setAttribute("aria-atomic", "true");
     clearSelection = button("선택 해제", () => {
-      selection.clear(); $("dialog-error").textContent = ""; renderCandidates(); filter.focus();
+      if (!canChangeSelection()) return;
+      selection.clear(); $("dialog-error").textContent = ""; renderCandidates(); (selectedOnly ? selectionReview : filter).focus();
     }, "text-button small"); clearSelection.disabled = true;
     const selectionHeader = node("div", undefined, "candidate-selection-header"); selectionHeader.append(count, clearSelection);
     const all = node("label", undefined, "select-visible-label"); selectVisible = node("input"); selectVisible.type = "checkbox"; selectVisible.disabled = true;
     selectVisible.addEventListener("change", () => {
+      if (!canChangeSelection() || selectedOnly) return;
       const adding = shown.some(item => !selection.has(item.key));
       const size = new Set([...selection, ...shown.map(item => item.key)]).size;
       if (adding && size > 1000) { $("dialog-error").textContent = "한 번에 최대 1,000개까지 담을 수 있어요. 검색으로 범위를 줄여 주세요."; updateSelection(); return; }
       for (const item of shown) { if (adding) selection.add(item.key); else selection.delete(item.key); }
       $("dialog-error").textContent = ""; renderCandidates();
     });
-    all.append(selectVisible, node("span", `보이는 ${itemName} 모두 선택`)); controls.append(selectionHeader, all); body.append(controls);
+    selectionReview = button("선택한 항목만 보기", () => {
+      if (!canChangeSelection() || (!selectedOnly && !selection.size)) return;
+      selectedOnly = !selectedOnly; reviewLimit = 200;
+      renderCandidates(); (selectionReview.disabled ? filter : selectionReview).focus();
+    }, "quiet-button candidate-selection-review");
+    selectionReview.disabled = true; selectionReview.setAttribute("aria-pressed", "false");
+    selectionReview.setAttribute("aria-controls", "candidate-list");
+    selectionReviewHelp = node("p", "검색 조건과 관계없이 선택한 항목만 표시합니다. 체크를 해제하면 목록에서 빠집니다. 버튼을 다시 누르면 이전 검색 목록으로 돌아갑니다.", "form-note");
+    selectionReviewHelp.id = "candidate-selection-review-help"; selectionReviewHelp.hidden = true;
+    selectionReview.setAttribute("aria-describedby", selectionReviewHelp.id);
+    all.append(selectVisible, node("span", `보이는 ${itemName} 모두 선택`)); controls.append(selectionHeader, selectionReview, selectionReviewHelp, all); body.append(controls);
     selectResults = button("전체 0개 선택", () => {
-      if (!loaded || reviewing || dialogBusy || !$("dialog").open || dialogSubmit !== submit) return;
+      if (!canChangeSelection() || selectedOnly) return;
       const size = new Set([...selection, ...matched.map(item => item.key)]).size;
       if (size > 1000) {
         $("dialog-error").textContent = `기존 선택을 포함하면 ${size.toLocaleString("ko-KR")}개입니다. 한 번에 최대 1,000개까지 담을 수 있어요. 검색 범위나 선택을 줄여 주세요. 선택은 바꾸지 않았습니다.`;
@@ -1557,8 +1583,15 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
     resultScope = node("p", "", "form-note"); resultScope.id = "candidate-result-scope"; resultScope.hidden = true;
     selectResults.setAttribute("aria-describedby", resultScope.id);
     controls.append(selectResults, resultScope);
-    list = node("div", undefined, "check-list tab-candidates"); body.append(list);
-    more = button("더 보기", () => { limit += 200; renderCandidates(); }, "text-button"); more.hidden = true; body.append(more);
+    list = node("div", undefined, "check-list tab-candidates"); list.id = "candidate-list"; body.append(list);
+    more = button("더 보기", () => {
+      if (!canChangeSelection()) return;
+      const firstNewIndex = shown.length;
+      if (selectedOnly) reviewLimit += 200; else limit += 200;
+      renderCandidates();
+      // Continue at the added rows, including when the final page hides More.
+      (list.querySelectorAll("input")[firstNewIndex] || (selectedOnly ? selectionReview : filter)).focus();
+    }, "text-button"); more.hidden = true; body.append(more);
     // Keep optional bookmark permission requests directly on the retry gesture.
     retry = node("button", "다시 불러오기"); retry.type = "button";
     retry.addEventListener("click", loadCandidates); retry.hidden = true; body.append(retry);
