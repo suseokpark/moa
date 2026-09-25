@@ -1294,10 +1294,10 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
   let destinationCatalog = state.catalog;
   let savedLinks = linksOf(library());
   const selection = new Set();
-  let candidates = [], shown = [], loaded = false, limit = 200;
+  let candidates = [], matched = [], shown = [], loaded = false, limit = 200;
   let sourceResult, needsReview = false, reviewing = false;
   const itemName = bookmarks ? "북마크" : "탭";
-  let filter, list, count, summary, selectVisible, clearSelection, more, retry, to, reviewBox, reviewNote, reviewButton, reviewLibrary;
+  let filter, list, count, summary, selectVisible, selectResults, resultScope, clearSelection, more, retry, to, reviewBox, reviewNote, reviewButton, reviewLibrary;
   const destination = () => destinationCatalog.libraries.find(item => item.id === targetLibrary);
   const validDestination = () => !!destination() && flattenGroups(destination()).some(({ group }) => group.id === to.group.value);
   const updateSelection = () => {
@@ -1307,6 +1307,7 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
     selectVisible.checked = shown.length > 0 && visibleCount === shown.length;
     selectVisible.indeterminate = visibleCount > 0 && visibleCount < shown.length;
     selectVisible.disabled = reviewing || !loaded || !shown.length;
+    selectResults.disabled = reviewing || !loaded || !matched.length;
     clearSelection.disabled = reviewing || !selection.size;
     filter.disabled = reviewing || !loaded;
     more.disabled = reviewing;
@@ -1319,7 +1320,7 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
   };
   const renderCandidates = () => {
     const query = filter.value.trim().toLocaleLowerCase();
-    const matched = candidates.filter(item => `${item.title} ${item.url} ${item.folderPath || ""}`.toLocaleLowerCase().includes(query));
+    matched = candidates.filter(item => `${item.title} ${item.url} ${item.folderPath || ""}`.toLocaleLowerCase().includes(query));
     shown = matched.slice(0, limit);
     list.replaceChildren();
     for (const item of shown) {
@@ -1342,6 +1343,9 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
     if (!shown.length) list.append(node("p", candidates.length ? "검색 결과가 없습니다." : `새로 담을 ${itemName}${bookmarks ? "가" : "이"} 없습니다. 이미 저장한 페이지와 지원하지 않는 주소는 제외했어요.`, "form-note"));
     more.hidden = shown.length >= matched.length;
     more.textContent = `더 보기 (${shown.length}/${matched.length})`;
+    selectResults.hidden = resultScope.hidden = shown.length >= matched.length;
+    selectResults.textContent = `${query ? "검색 결과 전체" : "전체"} ${matched.length}개 선택`;
+    resultScope.textContent = `${matched.length}개 중 ${shown.length}개 표시. 전체 선택은 화면 밖 결과도 포함하며 기존 선택을 유지합니다.`;
     updateSelection();
   };
   const prepareCandidates = () => {
@@ -1483,6 +1487,22 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
       $("dialog-error").textContent = ""; renderCandidates();
     });
     all.append(selectVisible, node("span", `보이는 ${itemName} 모두 선택`)); controls.append(selectionHeader, all); body.append(controls);
+    selectResults = button("전체 0개 선택", () => {
+      if (!loaded || reviewing || dialogBusy || !$("dialog").open || dialogSubmit !== submit) return;
+      const size = new Set([...selection, ...matched.map(item => item.key)]).size;
+      if (size > 1000) {
+        $("dialog-error").textContent = `기존 선택을 포함하면 ${size.toLocaleString("ko-KR")}개입니다. 한 번에 최대 1,000개까지 담을 수 있어요. 검색 범위나 선택을 줄여 주세요. 선택은 바꾸지 않았습니다.`;
+        return;
+      }
+      for (const item of matched) selection.add(item.key);
+      $("dialog-error").textContent = "";
+      // Keep the displayed rows and the initiating button stable for focus.
+      for (const [index, check] of [...list.querySelectorAll("input")].entries()) check.checked = selection.has(shown[index].key);
+      updateSelection();
+    }, "quiet-button candidate-select-results"); selectResults.disabled = true; selectResults.hidden = true;
+    resultScope = node("p", "", "form-note"); resultScope.id = "candidate-result-scope"; resultScope.hidden = true;
+    selectResults.setAttribute("aria-describedby", resultScope.id);
+    controls.append(selectResults, resultScope);
     list = node("div", undefined, "check-list tab-candidates"); body.append(list);
     more = button("더 보기", () => { limit += 200; renderCandidates(); }, "text-button"); more.hidden = true; body.append(more);
     // Keep optional bookmark permission requests directly on the retry gesture.

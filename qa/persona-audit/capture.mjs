@@ -3,7 +3,7 @@ import { fixture, deferred, flush } from '../../extension/notion-favorite-sectio
 
 export const CAPTURE_SCENARIOS = [
   '선택한 링크만 원자적으로 담기', '검색 뒤 숨겨진 선택 보존', '전체 선택 해제 후 검색 유지',
-  '200개 이후 후보까지 탐색', '기저장·중복·지원 불가 주소 제외', '긴 제목 정리 후 저장',
+  '200개 이후 후보의 전체 선택과 개별 탐색', '기저장·중복·지원 불가 주소 제외', '긴 제목 정리 후 저장',
   '조회 취소 후 늦은 응답 격리', '읽기 실패와 명시적 재시도', '저장 중 중복 제출 방지', '충돌 뒤 선택을 유지하고 명시적으로 최신 목록 검토'
 ];
 
@@ -64,12 +64,19 @@ export async function runCapture(p) {
       check('전체 선택 제거',f.count(),'0개 선택'); check('검색어 유지',f.filter().value,rows[1].url);
       check('저장 비활성 복원',f.$('dialog-submit').disabled,true); check('취소성 조작 무저장',f.actions.length,0);
     } else if(variant===3){
+      await f.search(p.interest); await f.clickText('검색 결과 전체');
+      check('더 보기 없이 모든 검색 결과 선택',f.count(),`${rows.length}개 선택 · 화면 밖 ${rows.length-200}개 포함`);
+      check('전체 선택은 표시 행을 늘리지 않음',f.checks().length,200);
+      check('선택만으로 저장하지 않음',f.actions.length,0);
+      await f.clickText('선택 해제');
+      check('전체 선택 해제로 화면 밖 후보도 해제',f.count(),'0개 선택');
+      check('전체 선택 해제 후 검색 유지',f.filter().value,p.interest);
       let pages=0; while(f.checks().length<rows.length){await f.clickText('더 보기');pages++;}
       await f.check(rows.at(-1).title); await f.submit();
       check('첫 200개 이후 마지막 링크 저장',f.actions[0].action.links[0].url,rows.at(-1).url);
       check('전체 후보 접근 가능',f.actions[0].action.links.length,1);
-      observations.push(`후보 ${rows.length}개에 더 보기 ${pages}회 필요`);
-      friction.push({id:'large-list-pagination',title:'대량 가져오기는 반복적인 더 보기 필요',evidence:`${rows.length}개 후보를 모두 보려면 추가 버튼 ${pages}회`,recommendation:'선택 범위를 유지하면서 검색 결과 전체 선택을 별도 제안하거나 페이지 이동을 단순화'});
+      observations.push(`후보 ${rows.length}개 전체 선택은 더 보기 없이 가능. 개별 내용을 모두 펼쳐 검토하려면 더 보기 ${pages}회 필요`);
+      friction.push({id:'large-list-pagination',title:'대량 후보를 개별 검토하려면 더 보기 필요',evidence:`전체 선택 단축은 제공되지만 ${rows.length}개 내용을 모두 보려면 추가 버튼 ${pages}회`,recommendation:'전체 선택 단축으로 선택 반복은 줄임. 개별 검토의 탐색 부담은 별도 사용자 확인 대상'});
     } else if(variant===4){
       check('중복 제외 안내',f.$('dialog-body').textContent.includes('중복'),true);
       check('저장된 주소 제외 안내',f.$('dialog-body').textContent.includes('이미 저장 1개'),true);
