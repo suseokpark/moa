@@ -384,10 +384,16 @@ export function applyCatalogAction(input, action) {
       if (action.revealTarget) for (const ancestor of path) ancestor.collapsed = false;
       break;
     }
-    case "addLinks": {
+    case "addLinks":
+    case "addLinksToNewGroup": {
       if (action.sectionId !== undefined) fail("섹션 대신 저장할 그룹을 선택해 주세요.");
       if (action.revealTarget !== undefined && typeof action.revealTarget !== "boolean") fail("저장 위치 표시 옵션이 올바르지 않습니다.");
-      const { group, path } = destination(library, action.groupId);
+      const creatingGroup = action.type === "addLinksToNewGroup";
+      if (creatingGroup && action.parentGroupId !== null && typeof action.parentGroupId !== "string") fail("새 그룹을 만들 상위 위치를 선택해 주세요.");
+      const parent = creatingGroup && action.parentGroupId != null ? destination(library, action.parentGroupId) : null;
+      const { group, path } = creatingGroup
+        ? { group: { id: newId("group"), name: text(action.name, "그룹 이름"), collapsed: false, groups: [], links: [] }, path: parent?.path || [] }
+        : destination(library, action.groupId);
       const inputs = array(action.links, 1000, "한 번에 추가할 링크");
       if (!inputs.length) fail("추가할 링크를 한 개 이상 선택해 주세요.");
       const keys = new Set(flattenGroups(library).flatMap(item => item.group.links.map(link => identifyUrl(link.url).key)));
@@ -398,6 +404,7 @@ export function applyCatalogAction(input, action) {
         keys.add(key);
         group.links.push(link);
       }
+      if (creatingGroup) (parent ? parent.group.groups : library.groups).push(group);
       if (action.revealTarget) for (const ancestor of path) ancestor.collapsed = false;
       break;
     }

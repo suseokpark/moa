@@ -1296,10 +1296,30 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
   const selection = new Set();
   let candidates = [], matched = [], shown = [], loaded = false, limit = 200;
   let sourceResult, needsReview = false, reviewing = false;
+  let newGroupMode = false;
   const itemName = bookmarks ? "북마크" : "탭";
   let filter, list, count, summary, selectVisible, selectResults, resultScope, clearSelection, more, retry, to, reviewBox, reviewNote, reviewButton, reviewLibrary;
+  let newGroupToggle, newGroupFields, newGroupName, newGroupParent, newGroupPreview;
   const destination = () => destinationCatalog.libraries.find(item => item.id === targetLibrary);
-  const validDestination = () => !!destination() && flattenGroups(destination()).some(({ group }) => group.id === to.group.value);
+  const parentChoice = () => {
+    if (!destination()) return null;
+    if (newGroupParent.value === "root") return { parentGroupId: null, path: [] };
+    if (!newGroupParent.value.startsWith("group:")) return null;
+    const row = flattenGroups(destination()).find(({ group }) => group.id === newGroupParent.value.slice(6));
+    return row && row.path.length < MAX_GROUP_DEPTH ? { parentGroupId: row.group.id, path: row.path } : null;
+  };
+  const refreshNewParents = value => {
+    const rows = destination() ? flattenGroups(destination()).filter(row => row.path.length < MAX_GROUP_DEPTH) : [];
+    const retained = value === "root" || rows.some(row => `group:${row.group.id}` === value);
+    newGroupParent.replaceChildren();
+    if (!retained) {
+      const missing = node("option", "새 그룹 위치를 다시 선택해 주세요");
+      missing.value = value; missing.selected = true; missing.disabled = true; newGroupParent.append(missing);
+    }
+    option(newGroupParent, "보관함 최상위", "root", value === "root");
+    for (const row of rows) option(newGroupParent, row.path.map(item => item.name).join(" › "), `group:${row.group.id}`, value === `group:${row.group.id}`);
+  };
+  const validDestination = () => newGroupMode ? !!parentChoice() : !!destination() && flattenGroups(destination()).some(({ group }) => group.id === to.group.value);
   const updateSelection = () => {
     const visibleCount = shown.filter(item => selection.has(item.key)).length;
     const hidden = selection.size - visibleCount;
@@ -1311,12 +1331,24 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
     clearSelection.disabled = reviewing || !selection.size;
     filter.disabled = reviewing || !loaded;
     more.disabled = reviewing;
-    to.group.disabled = reviewing || !loaded || !candidates.length || !destination();
+    const destinationDisabled = reviewing || !loaded || !candidates.length || !destination();
+    to.group.disabled = newGroupMode || destinationDisabled;
+    to.group.parentElement.hidden = newGroupMode;
+    newGroupToggle.disabled = destinationDisabled;
+    newGroupToggle.textContent = newGroupMode ? "기존 그룹에 담기" : "새 그룹에 담기";
+    newGroupToggle.setAttribute("aria-expanded", String(newGroupMode));
+    newGroupFields.hidden = !newGroupMode;
+    newGroupName.disabled = newGroupParent.disabled = !newGroupMode || destinationDisabled;
+    newGroupName.required = newGroupMode;
+    const parent = parentChoice();
+    newGroupPreview.textContent = parent
+      ? `저장 예정: ${[destination().name, ...parent.path.map(item => item.name), newGroupName.value.trim() || "새 그룹 이름"].join(" › ")}. 담기를 눌러야 그룹과 링크가 함께 저장됩니다.`
+      : "새 그룹 위치를 사용할 수 없습니다. 최신 목록에서 위치를 직접 선택해 주세요.";
     reviewButton.disabled = reviewing;
     reviewLibrary.disabled = reviewing;
     for (const check of list.querySelectorAll("input")) check.disabled = reviewing;
     $("dialog-submit").disabled = needsReview || reviewing || !loaded || !selection.size || !validDestination();
-    $("dialog-submit").textContent = selection.size ? `선택한 ${selection.size}개 담기` : "선택한 링크 담기";
+    $("dialog-submit").textContent = selection.size ? `${newGroupMode ? "새 그룹에" : "선택한"} ${selection.size}개 담기` : "선택한 링크 담기";
   };
   const renderCandidates = () => {
     const query = filter.value.trim().toLocaleLowerCase();
@@ -1359,17 +1391,21 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
       : `${sourceResult.demo ? "예시 탭 · " : "모든 Chrome 창 · "}새 링크 ${candidates.length}개 · 이미 저장 ${prepared.savedCount}개 · 중복 탭 ${prepared.duplicateCount}개 · 지원하지 않거나 비공개인 탭 ${(sourceResult.excludedCount || 0) + prepared.unsupportedCount}개 제외`;
     return previousCount - selection.size;
   };
-  const refreshDestination = groupId => {
+  const refreshDestination = (groupId, { chooseNewParent = false } = {}) => {
     const target = destination();
     const groups = target ? flattenGroups(target) : [];
     const retained = groups.some(({ group }) => group.id === groupId);
     to.group.replaceChildren();
     if (!retained) option(to.group, target ? "저장할 그룹을 선택해 주세요" : "먼저 보관함을 선택해 주세요", "", true);
     for (const value of groups) option(to.group, value.path.map(item => item.name).join(" › "), value.group.id, retained && value.group.id === groupId);
+    refreshNewParents(chooseNewParent ? "choose" : newGroupParent.value);
     if (target) {
       savedLinks = linksOf(target);
       const excluded = prepareCandidates();
-      reviewNote.textContent = `최신 목록 확인 완료 · 이미 저장된 선택 ${excluded}개 제외 · ${selection.size}개 유지. ${retained ? "저장할 그룹을 검토한 뒤 아래 담기 버튼을 눌러 주세요." : "기존 목적지를 사용할 수 없습니다. 저장할 그룹을 직접 선택해 주세요."}`;
+      const guidance = newGroupMode
+        ? (parentChoice() ? "새 그룹은 아직 만들지 않았습니다. 최신 위치와 이름을 확인한 뒤 아래 담기 버튼을 눌러 주세요." : "새 그룹 위치를 사용할 수 없습니다. 위치를 직접 선택해 주세요.")
+        : (retained ? "저장할 그룹을 검토한 뒤 아래 담기 버튼을 눌러 주세요." : "기존 목적지를 사용할 수 없습니다. 저장할 그룹을 직접 선택해 주세요.");
+      reviewNote.textContent = `최신 목록 확인 완료 · 이미 저장된 선택 ${excluded}개 제외 · ${selection.size}개 유지. ${guidance}`;
     } else {
       reviewNote.textContent = "기존 보관함이 없어졌습니다. 선택은 유지했습니다. 저장할 보관함과 그룹을 직접 선택해 주세요.";
     }
@@ -1378,9 +1414,19 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
   const submit = async () => {
     if (needsReview || reviewing || !loaded || !selection.size || !validDestination()) return false;
     const links = candidates.filter(item => selection.has(item.key)).map(({ title, url }) => ({ title, url }));
-    const targetGroupId = to.group.value;
+    const creating = newGroupMode;
+    const name = newGroupName.value.trim();
+    if (creating && (!name || name.length > 80 || /[\u0000-\u001f\u007f-\u009f]/u.test(newGroupName.value))) {
+      newGroupName.setAttribute("aria-invalid", "true");
+      throw Object.assign(new Error("새 그룹 이름을 1~80자로 입력해 주세요. 제어 문자는 사용할 수 없습니다."), { focusTarget: newGroupName });
+    }
+    const oldGroupIds = creating ? new Set(flattenGroups(destination()).map(row => row.group.id)) : null;
+    let targetGroupId = to.group.value;
+    const action = creating
+      ? { type: "addLinksToNewGroup", libraryId: targetLibrary, parentGroupId: parentChoice().parentGroupId, name, links, revealTarget: true }
+      : { type: "addLinks", libraryId: targetLibrary, groupId: targetGroupId, links, revealTarget: true };
     try {
-      await dispatch({ type: "addLinks", libraryId: targetLibrary, groupId: targetGroupId, links, revealTarget: true }, revision, `${links.length}개 링크를 담았습니다. 한 번의 되돌리기로 취소할 수 있어요.`);
+      await dispatch(action, revision, creating ? `새 그룹에 ${links.length}개 링크를 담았습니다. 한 번의 되돌리기로 그룹과 링크를 함께 취소할 수 있어요.` : `${links.length}개 링크를 담았습니다. 한 번의 되돌리기로 취소할 수 있어요.`);
     } catch (error) {
       if (error.code === "CONFLICT") {
         needsReview = true; reviewBox.hidden = false;
@@ -1389,6 +1435,8 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
       throw error;
     }
     libraryId = targetLibrary;
+    if (creating) targetGroupId = flattenGroups(library()).find(({ group }) => !oldGroupIds.has(group.id)
+      && group.links.some(link => safeKey(link.url) === safeKey(links[0].url)))?.group.id;
     linkSelection.stop(); $("search").value = "";
     render();
     runAfterTreeRender(() => {
@@ -1437,7 +1485,7 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
         reviewing = false; reviewBox.setAttribute("aria-busy", "false"); updateSelection();
         if (needsReview) reviewButton.focus();
         else if (!destination()) reviewLibrary.focus();
-        else to.group.focus();
+        else (newGroupMode ? newGroupParent : to.group).focus();
       }
     }
   };
@@ -1467,7 +1515,7 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
     reviewLibrary = selectField(reviewBox, "저장할 보관함"); reviewLibrary.classList.add("candidate-review-library"); reviewLibrary.parentElement.hidden = true;
     reviewLibrary.addEventListener("change", () => {
       if (reviewing || needsReview) return;
-      targetLibrary = reviewLibrary.value; refreshDestination("");
+      targetLibrary = reviewLibrary.value; refreshDestination("", { chooseNewParent: true });
     });
     filter = field(body, `${itemName} 검색`, "", { type: "search", required: false }); filter.disabled = true;
     if (bookmarks) filter.placeholder = "이름, 주소 또는 원본 폴더";
@@ -1510,6 +1558,25 @@ function chooseCandidateLinks({ bookmarks = false } = {}) {
     retry.addEventListener("click", loadCandidates); retry.hidden = true; body.append(retry);
     to = destinationFields(body); to.group.disabled = true; to.group.classList.add("candidate-target-group");
     to.group.addEventListener("change", updateSelection);
+    newGroupToggle = button("새 그룹에 담기", () => {
+      if (reviewing || dialogBusy || !loaded || !candidates.length || !destination() || !$("dialog").open || dialogSubmit !== submit) return;
+      newGroupMode = !newGroupMode;
+      newGroupName.removeAttribute("aria-invalid"); $("dialog-error").textContent = "";
+      updateSelection(); (newGroupMode ? newGroupName : to.group).focus();
+    }, "quiet-button candidate-new-group-toggle"); newGroupToggle.disabled = true;
+    newGroupFields = node("div", undefined, "candidate-new-group-fields"); newGroupFields.id = "candidate-new-group-fields"; newGroupFields.hidden = true;
+    newGroupToggle.setAttribute("aria-controls", newGroupFields.id); newGroupToggle.setAttribute("aria-expanded", "false");
+    newGroupName = field(newGroupFields, "새 그룹 이름", "", { required: false, maxLength: 80 });
+    newGroupName.classList.add("candidate-new-group-name"); newGroupName.disabled = true;
+    newGroupParent = selectField(newGroupFields, "새 그룹 위치"); newGroupParent.classList.add("candidate-new-group-parent"); newGroupParent.disabled = true;
+    refreshNewParents("root");
+    newGroupPreview = node("p", "", "form-note candidate-new-group-preview"); newGroupFields.append(newGroupPreview);
+    newGroupName.addEventListener("input", () => {
+      if (newGroupName.getAttribute("aria-invalid") === "true") $("dialog-error").textContent = "";
+      newGroupName.removeAttribute("aria-invalid"); updateSelection();
+    });
+    newGroupParent.addEventListener("change", updateSelection);
+    body.append(newGroupToggle, newGroupFields);
     body.append(reviewBox);
     body.append(node("p", bookmarks
       ? "최대 1,000개 · 숨겨진 선택도 함께 담습니다. 원본 북마크가 바뀌었다면 이 창을 닫았다 다시 열어 주세요."

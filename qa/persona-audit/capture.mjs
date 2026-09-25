@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { fixture, deferred, flush } from '../../extension/notion-favorite-sections/test-support/candidate-picker-fixture.mjs';
 
 export const CAPTURE_SCENARIOS = [
-  '선택한 링크만 원자적으로 담기', '검색 뒤 숨겨진 선택 보존', '전체 선택 해제 후 검색 유지',
+  '새 그룹과 선택한 링크를 원자적으로 담기', '검색 뒤 숨겨진 선택 보존', '전체 선택 해제 후 검색 유지',
   '200개 이후 후보의 전체 선택과 개별 탐색', '기저장·중복·지원 불가 주소 제외', '긴 제목 정리 후 저장',
   '조회 취소 후 늦은 응답 격리', '읽기 실패와 명시적 재시도', '저장 중 중복 제출 방지', '충돌 뒤 선택을 유지하고 명시적으로 최신 목록 검토'
 ];
@@ -48,9 +48,18 @@ export async function runCapture(p) {
     check('초기 200개까지만 표시',f.checks().length,Math.min(input.length-(variant===4?3:0),200));
     if(variant===0){
       await f.check(rows[0].title); await f.check(rows[1].title);
-      await f.target('destination'); f.$('search').value='외부 검색으로 숨김'; await f.submit();
+      await f.search(rows[0].url); await f.clickText('새 그룹에 담기');
+      const name=f.$('dialog-body').querySelector('.candidate-new-group-name');
+      name.value=`${p.interest} 모음`; await name.emit('input');
+      const parent=f.$('dialog-body').querySelector('.candidate-new-group-parent');
+      parent.value='group:destination'; await parent.emit('change');
+      check('새 그룹 준비는 저장하지 않음',f.actions.length,0);
+      check('새 그룹 준비 후 검색 유지',f.filter().value,rows[0].url);
+      check('새 그룹 준비 후 선택 유지',f.$('dialog-submit').textContent,'새 그룹에 2개 담기');
+      f.$('search').value='외부 검색으로 숨김'; await f.submit();
       check('선택한 두 개만 저장',f.actions[0].action.links.length,2);
-      check('저장 위치 일치',f.actions[0].action.groupId,'destination');
+      check('새 그룹과 링크는 하나의 명령',f.actions[0].action.type,'addLinksToNewGroup');
+      check('새 그룹 상위 위치 일치',f.actions[0].action.parentGroupId,'destination');
       check('원자적 단일 명령',f.actions.length,1);
       check('저장 뒤 외부 검색 해제',f.$('search').value,'');
       check('대상 그룹 펼침',f.run('library().groups.find(g=>g.id==="parent").collapsed'),false);
@@ -118,12 +127,15 @@ export async function runCapture(p) {
   if([0,1,3,4,5,7,9].includes(variant)) {
     const action=f.actions.at(-1)?.action;
     const committed=JSON.parse(f.run('JSON.stringify(flattenGroups(library()).map(({group})=>group))'));
-    const destination=committed.find(g=>g.id===action.groupId);
+    const destination=action.type==='addLinksToNewGroup'
+      ? committed.find(g=>g.links.some(link=>link.url===action.links[0].url))
+      : committed.find(g=>g.id===action.groupId);
+    if(action.type==='addLinksToNewGroup') check('새 그룹 이름 일치',destination?.name,`${p.interest} 모음`);
     check('성공 후 대화상자 닫힘',f.$('dialog').open,false);
     check('카탈로그 실제 링크 개수 증가',f.run('linksOf(library()).length'),1+action.links.length);
     check('지정 그룹에 선택한 제목·주소 모두 반영',action.links.every(item=>destination?.links.some(link=>link.title===item.title&&link.url===item.url)),true);
     check('기존 저장 링크 보존',f.run('linksOf(library()).some(link=>link.id==="saved"&&link.url==="https://example.com/saved")'),true);
   }
   check('후보 원본 데이터 불변',JSON.stringify(rows)===original,true);
-  return {checks,observations,friction,limitations:['실제 sidepanel 소스를 모의 DOM에서 실행; 브라우저 권한·레이아웃·인지 부담·포인터 동작 자체는 검증하지 않음','capture의 대상 트리는 공통 2단계 fixture. 경험·입력 방식은 가정이며 해당 경로를 재현한 접근성 증거가 아님. pagination 분기는 실제 후보를 최소 205개로 확대'],evidenceLevel:'shipped-ui-handler-with-mocked-platform',dataset:{candidateCount:input.length,profileCollectionSize:p.profile.collectionSize,actualTargetDepth:2,source:p.profile.source,interest:p.interest}};
+  return {checks,observations,friction,limitations:['실제 sidepanel 소스를 모의 DOM에서 실행; 브라우저 권한·레이아웃·인지 부담·포인터 동작 자체는 검증하지 않음','capture의 대상 트리는 공통 2단계 fixture이며 새 그룹 분기는 3단계 목적지를 만든다. 경험·입력 방식은 가정이며 해당 경로를 재현한 접근성 증거가 아님. pagination 분기는 실제 후보를 최소 205개로 확대'],evidenceLevel:'shipped-ui-handler-with-mocked-platform',dataset:{candidateCount:input.length,profileCollectionSize:p.profile.collectionSize,actualTargetDepth:variant===0?3:2,source:p.profile.source,interest:p.interest}};
 }
