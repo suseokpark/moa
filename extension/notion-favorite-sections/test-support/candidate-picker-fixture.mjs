@@ -120,6 +120,7 @@ export function fixture(tabs = defaults, { bookmarks = false } = {}) {
   $("select-visible").tagName = "INPUT"; $("select-visible").type = "checkbox";
   let catalog = createCatalog(), revision = 7, response = null, fetches = 0, interactionActive = false;
   let loadResponse = null, loads = 0;
+  let dragCallbacks, dragging = false;
   let candidateResponse = async () => ({ ok: true, ...(bookmarks ? { candidates: tabs } : { tabs }), excludedCount: 0 });
   catalog.libraries[0].groups[0].links.push({ id: "saved", title: "Saved", url: "https://example.com/saved", icon: "", provider: "generic" });
   catalog.libraries[0].groups.push({ id: "parent", name: "Parent", links: [], collapsed: true, groups: [
@@ -130,7 +131,7 @@ export function fixture(tabs = defaults, { bookmarks = false } = {}) {
     document, window: { addEventListener() {} }, identifyUrl, findSavedPage, createLinkSelection, ...candidatePreparation,
     flattenGroups, validateCatalog, prepareLinkInput, createGroupColorEditor, MAX_GROUP_DEPTH, SYSTEM_GROUP_ID,
     createInteractionGuard: () => ({ isActive: () => interactionActive }),
-    createTreeDrag: () => ({ bindSource() {}, bindTarget() {}, reset() {}, isDragging: () => false }),
+    createTreeDrag: callbacks => { dragCallbacks = callbacks; return { bindSource() {}, bindTarget() {}, reset() {}, isDragging: () => dragging }; },
     createPlatform: () => ({
       mode: "demo", getCurrentPage: async () => null, getOpenTabs: async () => [],
       load: async () => {
@@ -160,6 +161,8 @@ export function fixture(tabs = defaults, { bookmarks = false } = {}) {
     setLoadResponse(value) { loadResponse = value; },
     setCatalog(value, nextRevision) { catalog = structuredClone(value); revision = nextRevision; },
     setInteraction(value) { interactionActive = value; },
+    setDragging(value) { dragging = value; },
+    dragMove: (action, expectedRevision = revision) => dragCallbacks.onMove(action, expectedRevision),
     fetches: () => fetches,
     loads: () => loads,
     open: async () => { void $(bookmarks ? "import-bookmarks" : "save-tabs").emit("click"); await flush(); },

@@ -145,7 +145,7 @@ test("manual entry accepts a bare domain, optional title and chosen destination 
   assert.deepEqual(f.actions[0].action, {
     type: "addLink", libraryId: "library-personal",
     groupId: f.run("state.catalog.libraries[0].groups[0].id"),
-    link: { title: "example.com", url: "https://example.com/docs" }
+    link: { title: "example.com", url: "https://example.com/docs" }, revealTarget: true
   });
   assert.equal(f.actions[0].expectedRevision, 7);
   const saved = f.run("linksOf(library()).find(link => link.url === 'https://example.com/docs')");

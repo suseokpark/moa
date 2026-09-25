@@ -22,6 +22,7 @@ const urlKeys = new Map();
 let pageKey = "";
 let suppressedFolds = new Set();
 let dialogSubmit = null;
+let dialogGeneration = 0;
 let dialogOrigin = null;
 let dialogReturnKeys = [];
 let dialogBusy = false;
@@ -36,16 +37,16 @@ const interactionGuard = createInteractionGuard({ onIdle: flushPendingUI });
 const treeDrag = createTreeDrag({
   getContext: () => ({ library: library(), libraryId, catalogRevision: state?.revision, busy: linkSelection.isActive() || mutationBusy || dialogBusy || Boolean($("dialog")?.open || $("theme-dialog")?.open) }),
   onMove: async (action, revision) => {
-    await dispatch(action, revision, "이동했습니다. 되돌리기로 취소할 수 있어요.");
-    runAfterTreeRender(() => {
-      const movedId = action.linkId || action.groupId;
-      const selector = action.linkId ? "[data-link-id]" : "[data-group-id]";
-      const target = [...document.querySelectorAll(selector)].find(item => (action.linkId ? item.dataset.linkId : item.dataset.groupId) === movedId);
-      const destinationId = action.targetGroupId || action.targetParentGroupId;
-      const destination = [...document.querySelectorAll("[data-group-id]")].find(item => item.dataset.groupId === destinationId);
-      const control = target?.querySelector(action.linkId ? "a" : ".fold") || destination?.querySelector(".fold");
-      control?.focus(); control?.scrollIntoView({ block: "nearest" });
-    });
+    const initiatingLibrary = libraryId, initiatingDialogGeneration = dialogGeneration;
+    const targetLibrary = action.libraryId || libraryId;
+    const target = state.catalog.libraries.find(item => item.id === targetLibrary);
+    const rows = target ? flattenGroups(target) : [];
+    const source = rows.find(item => action.linkId ? item.group.links.some(link => link.id === action.linkId) : item.group.id === action.groupId);
+    const sameLocation = source && (action.linkId ? source.group.id === action.targetGroupId : (source.parent?.id ?? null) === (action.targetParentGroupId ?? null));
+    await dispatch({ ...action, libraryId: targetLibrary, revealTarget: true }, revision, sameLocation ? "이미 이 위치에 있습니다." : "이동했습니다. 되돌리기로 취소할 수 있어요.");
+    if (!sameLocation && libraryId === initiatingLibrary && dialogGeneration === initiatingDialogGeneration && !$("theme-dialog")?.open) {
+      revealTreeResult({ libraryId: targetLibrary, linkId: action.linkId, groupId: action.groupId });
+    }
   },
   announce,
   onEnd: flushPendingUI
@@ -149,6 +150,7 @@ function restoreDialogFocus() {
   $("add-group").focus();
 }
 function showDialog(title, submitText, populate, onSubmit) {
+  dialogGeneration++;
   if ($("dialog").open) $("dialog").close();
   dialogOrigin = document.activeElement;
   dialogReturnKeys = dialogOrigin?.dataset.focusKey ? [dialogOrigin.dataset.focusKey] : [];
@@ -560,8 +562,9 @@ function linkDialog(link = null, destination = {}, { move = false } = {}) {
   };
   const submit = async () => {
     if (needsReview || reviewing || !validTarget() || (needsAcknowledgement && !acknowledge.checked)) return false;
+    const sameLocation = move && entry()?.group.id === to.group.value;
     let action;
-    if (move) action = { type: "moveLink", libraryId: targetLibrary, linkId: link.id, targetGroupId: to.group.value };
+    if (move) action = { type: "moveLink", libraryId: targetLibrary, linkId: link.id, targetGroupId: to.group.value, revealTarget: true };
     else {
       for (const control of [url, title]) clearFieldError(control);
       // Validate the address first so an optional title error never blames it.
@@ -569,11 +572,13 @@ function linkDialog(link = null, destination = {}, { move = false } = {}) {
       const input = validateField(title, { title: title.value, url: url.value });
       action = link?.id
         ? { type: "updateLink", libraryId: targetLibrary, linkId: link.id, ...input }
-        : { type: "addLink", libraryId: targetLibrary, groupId: to.group.value, link: input };
+        : { type: "addLink", libraryId: targetLibrary, groupId: to.group.value, link: input, revealTarget: true };
     }
     try {
-      const saved = await dispatch(action, revision, move ? "링크를 이동했습니다." : link?.id ? "링크를 수정했습니다." : "링크를 담았습니다. 잘못 담았다면 되돌리기를 누르세요.");
-      if (saved && libraryId !== targetLibrary) { libraryId = targetLibrary; render(); }
+      const saved = await dispatch(action, revision, move ? sameLocation ? "이미 이 그룹에 있습니다." : "링크를 이동했습니다." : link?.id ? "링크를 수정했습니다." : "링크를 담았습니다. 잘못 담았다면 되돌리기를 누르세요.");
+      if (saved && move) { if (!sameLocation) revealTreeResult({ libraryId: targetLibrary, linkId: link.id }); }
+      else if (saved && !link?.id) revealTreeResult({ libraryId: targetLibrary, url: action.link.url });
+      else if (saved && libraryId !== targetLibrary) { libraryId = targetLibrary; render(); }
       return saved;
     } catch (error) {
       if (error.code === "CONFLICT") {
@@ -796,7 +801,7 @@ function treeMoveDialog({ groupId, linkIds = [], hidden = 0 }) {
     if (!count) return false;
     const destinationId = target.value;
     try {
-      const action = bulk ? { type: "moveLinks", linkIds, targetGroupId: destinationId } : { type: "moveGroup", groupId, targetParentGroupId: destinationId || null };
+      const action = bulk ? { type: "moveLinks", linkIds, targetGroupId: destinationId } : { type: "moveGroup", groupId, targetParentGroupId: destinationId || null, revealTarget: true };
       await dispatch({ ...action, libraryId: targetLibrary }, revision, bulk ? `${count}개 링크를 이동했습니다. 한 번의 되돌리기로 복구할 수 있어요.` : "그룹을 이동했습니다. 되돌리기로 취소할 수 있어요.");
       if (bulk) {
         linkSelection.stop(); $("search").value = "";
@@ -807,7 +812,7 @@ function treeMoveDialog({ groupId, linkIds = [], hidden = 0 }) {
           if ($("dialog").open) dialogOrigin = control; else control.focus();
           control.scrollIntoView({ block: "nearest" });
         });
-      } else if (libraryId !== targetLibrary) { libraryId = targetLibrary; render(); }
+      } else revealTreeResult({ libraryId: targetLibrary, groupId });
       return true;
     } catch (error) {
       if (error.code === "CONFLICT") {
@@ -1080,6 +1085,31 @@ function render() {
 function runAfterTreeRender(effect) {
   if (deferredRender) pendingTreeEffect = effect;
   else effect();
+}
+function revealTreeResult({ libraryId: resultLibraryId, linkId, groupId, url }) {
+  const targetLibrary = state.catalog.libraries.find(item => item.id === resultLibraryId);
+  if (!targetLibrary) return;
+  const groups = flattenGroups(targetLibrary);
+  const owner = groupId ? groups.find(item => item.group.id === groupId)
+    : groups.find(item => item.group.links.some(link => linkId ? link.id === linkId : safeKey(link.url) === safeKey(url)));
+  if (!owner) return;
+  const resultLink = groupId ? null : owner.group.links.find(link => linkId ? link.id === linkId : safeKey(link.url) === safeKey(url));
+  const resultId = resultLink?.id || groupId;
+  const initiatingDialogGeneration = dialogGeneration;
+  libraryId = resultLibraryId; $("search").value = "";
+  for (const group of groupId ? owner.path.slice(0, -1) : owner.path) suppressedFolds.delete(`g:${libraryId}:${group.id}`);
+  render();
+  runAfterTreeRender(() => {
+    // A deferred paint must not steal focus from a different library/dialog.
+    if (libraryId !== resultLibraryId || dialogGeneration !== initiatingDialogGeneration || $("theme-dialog")?.open) return;
+    const row = [...$("tree").querySelectorAll(resultLink ? "[data-link-id]" : "[data-group-id]")]
+      .find(item => (resultLink ? item.dataset.linkId : item.dataset.groupId) === resultId);
+    const control = row?.querySelector(resultLink ? "a" : ".fold");
+    if (!control) return;
+    if ($("dialog").open) { dialogOrigin = control; dialogReturnKeys = [control.dataset.focusKey]; }
+    else control.focus();
+    control.scrollIntoView({ block: "nearest", behavior: "auto" });
+  });
 }
 function restoreRenderedFocus(key) {
   if (!key || $("dialog").open) return;

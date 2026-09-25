@@ -359,6 +359,7 @@ export function applyCatalogAction(input, action) {
       break;
     }
     case "moveGroup": {
+      if (action.revealTarget !== undefined && typeof action.revealTarget !== "boolean") fail("저장 위치 표시 옵션이 올바르지 않습니다.");
       const { group, parent } = destination(library, action.groupId);
       if (group.id === SYSTEM_GROUP_ID) fail("미분류 그룹은 이동할 수 없습니다.");
       const target = action.targetParentGroupId == null ? null : destination(library, action.targetParentGroupId);
@@ -367,6 +368,7 @@ export function applyCatalogAction(input, action) {
       const siblings = parent ? parent.groups : library.groups;
       siblings.splice(siblings.findIndex(item => item.id === group.id), 1);
       (target ? target.group.groups : library.groups).push(group);
+      if (action.revealTarget && target) for (const ancestor of target.path) ancestor.collapsed = false;
       break;
     }
     case "addSection": case "renameSection": case "toggleSection":
@@ -374,10 +376,12 @@ export function applyCatalogAction(input, action) {
       fail("섹션은 하위 그룹으로 변경되었습니다. 최신 화면에서 그룹을 선택해 주세요.");
     case "addLink": {
       if (action.sectionId !== undefined) fail("섹션 대신 저장할 그룹을 선택해 주세요.");
-      const { group } = destination(library, action.groupId);
+      if (action.revealTarget !== undefined && typeof action.revealTarget !== "boolean") fail("저장 위치 표시 옵션이 올바르지 않습니다.");
+      const { group, path } = destination(library, action.groupId);
       const link = fromInputLink(action.link);
       assertNotDuplicate(library, link.url);
       group.links.push(link);
+      if (action.revealTarget) for (const ancestor of path) ancestor.collapsed = false;
       break;
     }
     case "addLinks": {
@@ -410,10 +414,15 @@ export function applyCatalogAction(input, action) {
       break;
     }
     case "moveLink": {
+      if (action.revealTarget !== undefined && typeof action.revealTarget !== "boolean") fail("저장 위치 표시 옵션이 올바르지 않습니다.");
       const found = findLink(library, action.linkId);
       if (action.targetSectionId !== undefined) fail("섹션 대신 이동할 그룹을 선택해 주세요.");
-      const { group } = destination(library, action.targetGroupId);
-      if (group.id !== found.group.id) { found.group.links.splice(found.index, 1); group.links.push(found.link); }
+      const { group, path } = destination(library, action.targetGroupId);
+      if (group.id !== found.group.id) {
+        found.group.links.splice(found.index, 1);
+        group.links.push(found.link);
+        if (action.revealTarget) for (const ancestor of path) ancestor.collapsed = false;
+      }
       break;
     }
     case "moveLinks": {
